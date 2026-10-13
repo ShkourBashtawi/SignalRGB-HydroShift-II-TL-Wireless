@@ -51,3 +51,54 @@ SignalRGB notes (`Type() = "rawusb"`):
 
 - HydroShift II: one 24-LED pump-head ring (`fan count` = 0 in its record).
 - Fans: `fan count × LEDs per fan`, fan 1 first.
+
+## LCD sensor screen (wireless AIO)
+
+Ported from lian-li-linux `wireless/aio.rs` and the daemon's `controllers/aio.rs`.
+
+**Theme switch** `RF_AIO_SWITCH_WIRELESS` (0x19), 240-byte RF frame, sent on the device channel to its RX slot:
+
+| Byte | Value |
+|---|---|
+| 0 | `0x12` (RF_SELECT) |
+| 1 | `0x19` |
+| 2–7 | AIO MAC |
+| 8–13 | TX master MAC |
+| 14 | AIO RX slot |
+| 15 | master channel |
+| 16 | slot index: 1-based position of the AIO among devices bound to this master, in RX list order |
+| 17 | sequence = last target + 1, or the AIO's current `cmd_seq` + 1 (wraps 254 → 1) |
+
+The AIO acknowledges by reporting the sequence as `cmd_seq` (byte 40 of its 42-byte RX record). Retry every 2 s until then.
+
+**Params** `RF_AIO_PARAMS` (0x21): same header (byte 17 = 0), then the 32-byte `aio_param` at bytes 18–49. Sent once a second.
+
+| aio_param byte | Meaning |
+|---|---|
+| 0, 1, 2, 3 | CPU temp, CPU load, GPU temp, GPU load (0–99, truncated) |
+| 6 | page time, seconds (1–30, default 3) |
+| 7 | 1 |
+| 8–11 | enable flag for each of the four values |
+| 13–16, 17–20, 21–24 | label / value / unit color, A R G B |
+| 25 | brightness 0–100 |
+| 26 | 1 |
+| 27 | theme 0–12 |
+| 28–29 | pump timer, big-endian (see below) |
+| 30 | rotation 0–3 (×90°) |
+
+Pump timer from target RPM, piecewise linear, computed in f32 and truncated:
+LCD-S (square) 1600–3200 rpm → 1590…0 (3200 rpm = 0 = full speed); LCD-C (round) 1600–2500 rpm → 1500…10.
+
+## Fan speed (RF_PWM_CMD 0x10)
+
+Ported from lian-li-linux `wireless/fan_speed.rs`. Same header as the AIO commands (byte 14 RX slot, 15 master channel, 16 slot index), then four PWM duties at bytes 17–20 (one per fan slot; slot 4 is the pump on an AIO). Unused slots are 0, non-zero duties are raised to the family's floor (TL 11 %, SL 14 %, P28 8 %, others 10 %), CL fans skip 153–155, SL-INF right-attach chains are reversed. The fans report the duty they run at in bytes 36–39 of their RX record.
+
+Observed on real hardware: the fans adopt byte 15 as their channel. With the master on channel 8 and the fans set up on 39, the first PWM command moved them to channel 8. Frames sent on 39 afterwards (PWM and colours) were ignored until the plugin followed the channel the RX reports. Sending a PWM frame with byte 15 = 39 moved them back.
+
+Wireless fans fall back to their own default duty (128) when PWM traffic stops for a while, so the target is re-sent every second.
+
+## Picture upload (RF_SEND_PIC 0x22)
+
+A 480×480 JPEG of at most 20 480 bytes, sent in 220-byte chunks (byte 17 sequence, byte 18 chunk index, data from byte 19), then a terminator with index 0xFF and the length (big-endian) in bytes 19–20. Each frame needs a new sequence number and must be acknowledged through the RX `cmd_seq` before the next one (about 0.7 s per chunk with the Finder polling; 79 chunks took 55 s).
+
+Tested on an LCD-S: the upload completed and was acknowledged, but the screen kept showing the sensor theme. lian-li-linux uses this command for the H2 **startup image**, so it does not change what is on screen, and SignalRGB LCD themes cannot be streamed over the wireless link.

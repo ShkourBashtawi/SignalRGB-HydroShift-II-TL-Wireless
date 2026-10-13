@@ -11,6 +11,13 @@ const LL_USB_CMD_GET_MAC = 0x11;
 const LL_RF_SELECT = 0x12;
 const LL_RF_CLOCK_SYNC = 0x14;
 const LL_RF_SET_RGB = 0x20;
+const LL_RF_PWM_CMD = 0x10;
+const LL_RF_SEND_PIC = 0x22;
+const LL_PIC_CHUNK_BYTES = 220;
+const LL_MAX_AIO_IMAGE_BYTES = 20480;
+const LL_RF_AIO_SWITCH_WIRELESS = 0x19;
+const LL_RF_AIO_PARAMS = 0x21;
+const LL_AIO_PARAM_LEN = 32;
 
 const LL_RF_DATA_SIZE = 240;
 const LL_RF_CHUNK_SIZE = 60;
@@ -419,6 +426,9 @@ function llParseDeviceRecord(d) {
 			((d[34] & 0x0f) << 8) | d[35],
 		],
 		mbRgbSync: (status & 0x40) !== 0,
+		pwmLineOn: (status & 0x20) !== 0,
+		rightAttach: rawFans >= 10,
+		currentPwm: d.slice(36, 40),
 		cmdSeq: d[40],
 		fanTypes: d.slice(24, 28),
 		effectIndex: d.slice(20, 24),
@@ -496,6 +506,300 @@ function llBuildLayout(fanCount, ledsPerFan, rotation, reverse) {
 		pumpCount: LL_LEDS_PER_RING,
 		fanLedCount: fanCount * ledsPerFan,
 	};
+}
+
+// ------------------------------ AIO LCD -------------------------------------
+// The HydroShift II LCD has a built-in "wireless theme" mode that draws CPU/GPU
+// values the host sends in a 32-byte aio_param block (RF_AIO_PARAMS). The block
+// also carries the pump speed, so every send sets the pump too.
+// Ported from lian-li-linux: wireless/aio.rs + daemon controllers/aio.rs.
+
+const LL_PUMP_RANGE = {
+	square: [1600, 3200], // LCD-S (WaterBlock2)
+	circle: [1600, 2500], // LCD-C (WaterBlock)
+};
+
+// Rust computes these curves in f32; Math.fround keeps the truncation identical.
+function llF32Curve(rpm, lo, hi, segments) {
+	const f = Math.fround;
+	const r = f(Math.min(Math.max(rpm, lo), hi));
+	for (const [upTo, base, start, slope] of segments) {
+		if (r <= upTo) {
+			const t = f(f(base) - f(f(r - start) * f(slope)));
+			return Math.min(Math.max(Math.trunc(t), 0), 0xffff);
+		}
+	}
+	return 0;
+}
+
+function llSquarePumpTimer(rpm) {
+	return llF32Curve(rpm, 1600, 3200, [
+		[1800, 1590, 1600, 0.95],
+		[2000, 1400, 1800, 1],
+		[2200, 1200, 2000, 1],
+		[2400, 1000, 2200, 1],
+		[2600, 800, 2400, 1],
+		[2800, 580, 2600, 1.11],
+		[3000, 330, 2800, 1.2],
+		[Infinity, 90, 3000, 0.45],
+	]);
+}
+
+function llCirclePumpTimer(rpm) {
+	return llF32Curve(rpm, 1600, 2500, [
+		[1720, 1500, 1600, 1.667],
+		[1870, 1300, 1720, 2],
+		[2000, 1000, 1870, 1.23],
+		[2300, 840, 2000, 2],
+		[2400, 240, 2300, 1.8],
+		[Infinity, 60, 2400, 0.5],
+	]);
+}
+
+function llPumpTimer(rpm, shape) {
+	return shape === "circle" ? llCirclePumpTimer(rpm) : llSquarePumpTimer(rpm);
+}
+
+// Colors are [r, g, b] (alpha is always 255) and written as A, R, G, B.
+function llBuildAioParam(o) {
+	const p = new Array(LL_AIO_PARAM_LEN).fill(0);
+	const val = (v) => (typeof v === "number" && isFinite(v) ? Math.trunc(Math.min(Math.max(v, 0), 99)) : null); // Rust: clamp(0,99) as u8
+	const sensors = [o.cpuTemp, o.cpuLoad, o.gpuTemp, o.gpuLoad].map(val);
+	for (let k = 0; k < 4; k++) {
+		p[k] = sensors[k] === null ? 0 : sensors[k];
+		p[8 + k] = sensors[k] === null ? 0 : 1;
+	}
+	p[6] = Math.min(Math.max(o.loopInterval || 3, 1), 30);
+	p[7] = 1;
+	const argb = (at, c) => {
+		const rgb = c || [255, 255, 255];
+		p[at] = 255;
+		p[at + 1] = rgb[0] & 0xff;
+		p[at + 2] = rgb[1] & 0xff;
+		p[at + 3] = rgb[2] & 0xff;
+	};
+	argb(13, o.labelColor);
+	argb(17, o.valueColor);
+	argb(21, o.unitColor);
+	p[25] = Math.min(Math.max(o.brightness === undefined ? 80 : o.brightness, 0), 100);
+	p[26] = 1;
+	p[27] = Math.min(Math.max(o.theme || 0, 0), 12);
+	const timer = llPumpTimer(o.pumpRpm, o.pumpShape);
+	p[28] = (timer >> 8) & 0xff;
+	p[29] = timer & 0xff;
+	p[30] = Math.min(Math.max(o.rotation || 0, 0), 3);
+	return p;
+}
+
+function llAioHeader(opcode, mac, master, rxSlot, masterChannel, slotIndex) {
+	const rf = new Array(LL_RF_DATA_SIZE).fill(0);
+	rf[0] = LL_RF_SELECT;
+	rf[1] = opcode;
+	for (let k = 0; k < 6; k++) {
+		rf[2 + k] = mac[k];
+		rf[8 + k] = master[k];
+	}
+	rf[14] = rxSlot & 0xff;
+	rf[15] = masterChannel & 0xff;
+	rf[16] = slotIndex & 0xff;
+	return rf;
+}
+
+function llAioParamsFrame(mac, master, rxSlot, masterChannel, slotIndex, param) {
+	const rf = llAioHeader(LL_RF_AIO_PARAMS, mac, master, rxSlot, masterChannel, slotIndex);
+	for (let k = 0; k < LL_AIO_PARAM_LEN; k++) {
+		rf[18 + k] = param[k] & 0xff;
+	}
+	return rf;
+}
+
+// Switches the LCD to the built-in sensor theme. The AIO acknowledges by
+// reporting `sequence` as its cmd_seq (record byte 40) in the RX device list.
+function llThemeSwitchFrame(mac, master, rxSlot, masterChannel, slotIndex, sequence) {
+	const rf = llAioHeader(LL_RF_AIO_SWITCH_WIRELESS, mac, master, rxSlot, masterChannel, slotIndex);
+	rf[17] = sequence & 0xff;
+	return rf;
+}
+
+function llNextSequence(previous, observed) {
+	const v = previous === null || previous === undefined ? observed : previous;
+	return v <= 253 ? v + 1 : 1;
+}
+
+// Slot index = 1-based position among the devices bound to this TX master
+// (the RX list order, master entry excluded), as lian-li-linux next_slot_index.
+function llSlotIndex(records, mac, masterMac) {
+	let slot = 1;
+	for (const r of records) {
+		if (r.isMaster || !r.masterMac.every((b, k) => b === masterMac[k])) {
+			continue;
+		}
+		if (r.mac.every((b, k) => b === mac[k])) {
+			return slot;
+		}
+		slot++;
+	}
+	return slot;
+}
+
+// Sensor packet from the helper: {"cpu_temp":51,"cpu_load":12,"gpu_temp":44,"gpu_load":3}
+// Missing / null / out-of-range fields mean "not available".
+function llParseSensorMessage(text) {
+	let j;
+	try {
+		j = JSON.parse(text);
+	} catch (e) {
+		return null;
+	}
+	if (!j || typeof j !== "object") {
+		return null;
+	}
+	const pick = (k) => {
+		const v = j[k];
+		return typeof v === "number" && isFinite(v) && v >= 0 && v <= 150 ? v : null;
+	};
+	return {
+		cpuTemp: pick("cpu_temp"),
+		cpuLoad: pick("cpu_load"),
+		gpuTemp: pick("gpu_temp"),
+		gpuLoad: pick("gpu_load"),
+		source: typeof j.source === "string" ? j.source.slice(0, 40) : "",
+	};
+}
+
+// Finder -> TX plugin status packet (local UDP). Carries what only the RX can see.
+function llParseFinderMessage(text) {
+	let j;
+	try {
+		j = JSON.parse(text);
+	} catch (e) {
+		return null;
+	}
+	if (!j || j.kind !== "finder" || !Array.isArray(j.devices)) {
+		return null;
+	}
+	return j;
+}
+
+// ------------------------------ Fan speed ------------------------------------
+// RF_PWM_CMD (0x10): four PWM duties (0-255), one per fan slot; slot 3 is the
+// pump on an AIO. Wireless fans fall back to their default speed when the host
+// goes quiet, so the target is re-sent every second.
+// Ported from lian-li-linux wireless/fan_speed.rs (prepare_pwm, build_pwm_packet).
+
+function llMinDutyPercent(deviceType, fanTypes) {
+	if (deviceType === 10 || deviceType === 11 || deviceType === 66) return 10;
+	if ((deviceType >= 1 && deviceType <= 9) || deviceType === 65 || deviceType === 88) return 0;
+	const b = (fanTypes || []).find((x) => x !== 0) || 0;
+	if ((b >= 20 && b <= 26) || (b >= 59 && b <= 62)) return 14;
+	if ((b >= 28 && b <= 31) || (b >= 36 && b <= 39) || (b >= 51 && b <= 58)) return 11;
+	if (b === 63) return 8;
+	return 10; // TL LCD, CL, SL-INF V3, unknown
+}
+
+function llIsClFan(fanTypes) {
+	const b = (fanTypes || []).find((x) => x !== 0) || 0;
+	return (b >= 40 && b <= 42) || b === 126 || b === 127;
+}
+
+// rec: {deviceType, fanCount, rightAttach, fanTypes}
+function llPreparePwm(pwm, rec) {
+	const out = [0, 1, 2, 3].map((i) => Math.min(Math.max(Math.round(pwm[i] || 0), 0), 255));
+	const isAio = rec.deviceType === 10 || rec.deviceType === 11;
+	const f = Math.fround;
+	const minPwm = Math.trunc(f(f(llMinDutyPercent(rec.deviceType, rec.fanTypes) / 100) * 255));
+	const cl = isAio || rec.deviceType !== 0 ? false : llIsClFan(rec.fanTypes);
+	for (let i = 0; i < 4; i++) {
+		if (i >= rec.fanCount && !(i === 3 && isAio)) {
+			out[i] = 0;
+			continue;
+		}
+		if (out[i] > 0 && out[i] < minPwm) {
+			out[i] = minPwm;
+		}
+		if (cl) {
+			if (out[i] === 153 || out[i] === 154) out[i] = 152;
+			else if (out[i] === 155) out[i] = 156;
+		}
+	}
+	if (rec.rightAttach) {
+		const n = Math.min(rec.fanCount, 4);
+		if (n > 1) {
+			const head = out.slice(0, n).reverse();
+			for (let i = 0; i < n; i++) out[i] = head[i];
+		}
+	}
+	return out;
+}
+
+function llPwmFrame(mac, master, rxSlot, masterChannel, slotIndex, pwm) {
+	const rf = llAioHeader(LL_RF_PWM_CMD, mac, master, rxSlot, masterChannel, slotIndex);
+	for (let k = 0; k < 4; k++) {
+		rf[17 + k] = pwm[k] & 0xff;
+	}
+	return rf;
+}
+
+// Pump RPM <-> SignalRGB 0..1 fan level, inside the variant's range.
+function llPumpRpmFromLevel(level, shape) {
+	const [lo, hi] = LL_PUMP_RANGE[shape === "circle" ? "circle" : "square"];
+	const l = Math.min(Math.max(typeof level === "number" && isFinite(level) ? level : 1, 0), 1);
+	return Math.round(lo + l * (hi - lo));
+}
+
+// ------------------------------ LCD picture ----------------------------------
+// RF_SEND_PIC (0x22): a JPEG (480x480, at most 20 KB) in 220-byte chunks, then a
+// terminator (index 0xFF) carrying the total length. Every frame carries a fresh
+// sequence number and must be acknowledged (AIO cmd_seq) before the next one.
+// Ported from lian-li-linux wireless/opcodes.rs (picture_packets, send_aio_pic).
+
+function llPicFrame(mac, master, rxSlot, masterChannel, sequence, index, data) {
+	if (data.length > LL_PIC_CHUNK_BYTES) {
+		throw new Error("picture chunk exceeds 220 bytes");
+	}
+	const rf = llAioHeader(LL_RF_SEND_PIC, mac, master, rxSlot, masterChannel, 0);
+	rf[17] = sequence & 0xff;
+	rf[18] = index & 0xff;
+	for (let k = 0; k < data.length; k++) {
+		rf[19 + k] = data[k] & 0xff;
+	}
+	return rf;
+}
+
+// [{index, data}] for every chunk plus the terminator.
+function llPicChunks(jpeg) {
+	if (!jpeg || jpeg.length < 1 || jpeg.length > LL_MAX_AIO_IMAGE_BYTES) {
+		throw new Error(`LCD image must be 1..${LL_MAX_AIO_IMAGE_BYTES} bytes`);
+	}
+	const out = [];
+	for (let i = 0; i * LL_PIC_CHUNK_BYTES < jpeg.length; i++) {
+		out.push({ index: i, data: jpeg.slice(i * LL_PIC_CHUNK_BYTES, (i + 1) * LL_PIC_CHUNK_BYTES) });
+	}
+	out.push({ index: 0xff, data: [(jpeg.length >> 8) & 0xff, jpeg.length & 0xff] });
+	return out;
+}
+
+function llToBase64(bytes) {
+	const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	let out = "";
+	for (let i = 0; i < bytes.length; i += 3) {
+		const n = (bytes[i] << 16) | ((bytes[i + 1] || 0) << 8) | (bytes[i + 2] || 0);
+		out += abc[(n >> 18) & 63] + abc[(n >> 12) & 63] + (i + 1 < bytes.length ? abc[(n >> 6) & 63] : "=") + (i + 2 < bytes.length ? abc[n & 63] : "=");
+	}
+	return out;
+}
+
+function llFromBase64(text) {
+	const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	const out = [];
+	const clean = String(text || "").replace(/[^A-Za-z0-9+/]/g, "");
+	for (let i = 0; i < clean.length; i += 4) {
+		const n = (abc.indexOf(clean[i]) << 18) | (abc.indexOf(clean[i + 1]) << 12) | ((abc.indexOf(clean[i + 2]) & 63) << 6) | (abc.indexOf(clean[i + 3]) & 63);
+		out.push((n >> 16) & 255);
+		if (i + 2 < clean.length) out.push((n >> 8) & 255);
+		if (i + 3 < clean.length) out.push(n & 255);
+	}
+	return out;
 }
 
 // ------------------------- SignalRGB glue helpers --------------------------
@@ -581,5 +885,24 @@ if (typeof module !== "undefined") {
 		llBuildLayout,
 		llFanFamily,
 		llGapBefore,
+		llSquarePumpTimer,
+		llCirclePumpTimer,
+		llPumpTimer,
+		llBuildAioParam,
+		llAioParamsFrame,
+		llThemeSwitchFrame,
+		llNextSequence,
+		llSlotIndex,
+		llParseSensorMessage,
+		llParseFinderMessage,
+		LL_PUMP_RANGE,
+		llMinDutyPercent,
+		llPreparePwm,
+		llPwmFrame,
+		llPumpRpmFromLevel,
+		llPicFrame,
+		llPicChunks,
+		llToBase64,
+		llFromBase64,
 	};
 }

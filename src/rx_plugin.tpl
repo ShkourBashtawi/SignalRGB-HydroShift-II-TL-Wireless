@@ -2,6 +2,8 @@
 // Reads the wireless device list from the RX dongle and prints, for each device,
 // the MAC / RX slot / channel the HydroShift II plugin needs, plus live pump RPM,
 // fan RPM and coolant temperature. It has no LEDs.
+// It also shares the live device list with the HydroShift plugin over local UDP
+// (127.0.0.1 only), so the LCD sensor screen can be switched on and monitored.
 //
 // Community plugin, not affiliated with Lian Li or WhirlwindFX.
 // Protocol ported from sgtaziz/lian-li-linux (MIT). License: MIT
@@ -15,23 +17,29 @@ export function Type() { return "rawusb"; }
 export function Size() { return [1, 1]; }
 export function DefaultPosition() { return [0, 0]; }
 export function DefaultScale() { return 1.0; }
-export function ImageUrl() { return ""; }
+export function ImageUrl() { return "@@IMAGE:lwireless_rx.png@@"; }
 export function ConflictingProcesses() { return ["L-Connect 3.exe", "L-Connect-Service.exe"]; }
 export function ControllableParameters() { return []; }
 export function LedNames() { return []; }
 export function LedPositions() { return []; }
 
+import udp from "@SignalRGB/udp";
+
 //@@CORE@@
 
-const POLL_MS = 5000;
+const POLL_MS = 1000;
 const STATUS_MS = 60000;
+const SHARE_PORT = 51870; // HydroShift plugin listens here (same port as the sensor helper)
 
 let lastPoll = 0;
 let lastStatusAt = 0;
 let lastBlock = "";
 let lastMasterChannel = 0;
 let warnedNoReply = false;
+let missedReplies = 0;
 let shownIds = [];
+let lastMessages = "";
+let shareSocket = null;
 
 export function Validate(endpoint) {
 	return endpoint.interface === 0;
@@ -50,6 +58,13 @@ export function Render() {
 
 export function Shutdown() {
 	clearMessages();
+	lastMessages = "";
+	try {
+		if (shareSocket) {
+			shareSocket.close();
+		}
+	} catch (e) { /* ignore */ }
+	shareSocket = null;
 }
 
 function poll() {
@@ -61,16 +76,21 @@ function poll() {
 		llLog(`GetDev failed: ${e}`);
 		return;
 	}
-	clearMessages();
 	if (!records) {
-		if (!warnedNoReply) {
-			warnedNoReply = true;
-			llLog("The RX dongle did not answer. Is L-Connect 3 / L-Connect-Service still running?");
+		// A single missed reply is normal radio noise; only complain when it persists.
+		missedReplies++;
+		if (missedReplies >= 3) {
+			if (!warnedNoReply) {
+				warnedNoReply = true;
+				llLog("The RX dongle did not answer. Is L-Connect 3 / L-Connect-Service still running?");
+			}
+			showMessages([["ll_none", "RX dongle gave no valid reply", "Close L-Connect 3 and L-Connect-Service."]]);
 		}
-		addMessage("ll_none", "RX dongle gave no valid reply", "Close L-Connect 3 and L-Connect-Service.");
 		return;
 	}
+	missedReplies = 0;
 	warnedNoReply = false;
+	share(records);
 
 	const master = records.find((r) => r.isMaster);
 	const devices = records.filter((r) => !r.isMaster);
@@ -96,12 +116,58 @@ function poll() {
 	}
 
 	if (!devices.length) {
-		addMessage("ll_none", "No wireless devices found yet", "Check the devices are powered and bound to this dongle.");
+		showMessages([["ll_none", "No wireless devices found yet", "Check the devices are powered and bound to this dongle."]]);
 		return;
 	}
-	devices.forEach((d, i) => addMessage(`ll_dev_${i}`, `${nameOf(d)} — MAC ${llMacToString(d.mac)}`, `RX slot ${d.rxType}, channel ${d.channel}`));
+	showMessages(devices.map((d, i) => [`ll_dev_${i}`, `${nameOf(d)} — MAC ${llMacToString(d.mac)}`, `RX slot ${d.rxType}, channel ${d.channel}`]));
 	if (master) {
 		lastMasterChannel = master.channel;
+	}
+}
+
+// Send the device list to the HydroShift plugin (localhost only). It needs the
+// pump's cmd_seq to confirm the LCD theme switch, the slot index and pump RPM.
+function share(records) {
+	try {
+		if (!shareSocket) {
+			shareSocket = udp.createSocket();
+			shareSocket.on("error", () => {});
+		}
+		const msg = {
+			kind: "finder",
+			t: Date.now(),
+			devices: records.map((r) => ({
+				mac: llMacToString(r.mac),
+				master: llMacToString(r.masterMac),
+				isMaster: r.isMaster,
+				type: r.deviceType,
+				rx: r.rxType,
+				ch: r.channel,
+				seq: r.cmdSeq,
+				pumpRpm: r.fanRpm[3],
+				rpm: r.fanRpm,
+				pwm: r.currentPwm,
+				fans: r.fanCount,
+				fanTypes: r.fanTypes,
+				right: r.rightAttach,
+				coolant: r.coolantC,
+			})),
+		};
+		shareSocket.write(JSON.stringify(msg), "127.0.0.1", SHARE_PORT);
+	} catch (e) {
+		shareSocket = null;
+	}
+}
+
+function showMessages(list) {
+	const key = JSON.stringify(list);
+	if (key === lastMessages) {
+		return;
+	}
+	lastMessages = key;
+	clearMessages();
+	for (const [id, text, tip] of list) {
+		addMessage(id, text, tip);
 	}
 }
 

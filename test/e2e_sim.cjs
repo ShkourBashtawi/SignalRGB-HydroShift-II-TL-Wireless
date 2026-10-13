@@ -2,7 +2,7 @@
 // using the user's real device IDs (pump + TL fans on channel 39, master on 8).
 const fs=require('fs'),vm=require('vm'),cp=require('child_process');
 const T=__dirname,P=T+'/../';
-function load(file,device,params){const src=fs.readFileSync(P+file,'utf8').replace(/^export /gm,'');const ctx=vm.createContext({device,console,Date,Math,JSON,...params});vm.runInContext(src+'\n;this.__api={Initialize,Render,Shutdown,LedNames,LedPositions,Validate};',ctx);return ctx.__api;}
+function load(file,device,params){const src=fs.readFileSync(P+file,'utf8').replace(/^import udp from "@SignalRGB\/udp";$/m,"const udp={createSocket(){return {on(){},bind(){},write(){},close(){}};}};").replace(/^export /gm,'');const ctx=vm.createContext({device,console,Date,Math,JSON,...params});vm.runInContext(src+'\n;this.__api={Initialize,Render,Shutdown,LedNames,LedPositions,Validate};',ctx);return ctx.__api;}
 let fail=0;const ok=(c,m)=>{if(!c){fail++;console.log('FAIL',m);}else console.log('ok  ',m);};
 const MASTER=[0xe6,0xd8,0x71,0xe5,0x66,0xe4],PUMP=[0xe7,0xf5,0xf3,0xe5,0x66,0xe1],FANS=[0x81,0x0c,0x73,0xe5,0x66,0xe1];
 const writes=[];let pendingIn=[];const logs=[];const msgs={};
@@ -11,7 +11,7 @@ const tx={bulk_transfer(ep,data,len){if(ep<0x80){writes.push(data.slice());if(da
   if(!data||data.length<len) return {length:-1};return pendingIn.length?pkt(pendingIn.shift()):{length:-1};},
   pause(){},log(m){logs.push(String(m));},color(x,y){return [(x*5)&255,(y*20)&255,(x*y)&255];},
   addMessage(id,t){msgs[id]=t;},removeMessage(id){delete msgs[id];},setControllableLeds(){},setSize(){}};
-const params={shutdownColor:'#102030',LightingMode:'Canvas',forcedColor:'#009bde',PumpMac:'e7:f5:f3:e5:66:e1',PumpRxSlot:'2',FansMac:'81:0c:73:e5:66:e1',FansRxSlot:'1',FanCount:'3',LedsPerFan:'26',RingRotation:'0',RingReverse:false,UpdateRate:'10',WirelessChannel:'Auto',DeviceChannel:'39'};
+const params={shutdownColor:'#102030',LightingMode:'Canvas',forcedColor:'#009bde',PumpMac:'e7:f5:f3:e5:66:e1',PumpRxSlot:'2',FansMac:'81:0c:73:e5:66:e1',FansRxSlot:'1',FanCount:'3',LedsPerFan:'26',RingRotation:'0',RingReverse:false,UpdateRate:'10',WirelessChannel:'Auto',DeviceChannel:'39',ScreenMode:'Off (don\'t touch)'};
 const api=load('LianLi_HydroShift_II_Wireless.js',tx,params);
 ok(api.LedNames().length===102,'102 LEDs (24 pump + 3x26 TL)');
 api.Initialize();
