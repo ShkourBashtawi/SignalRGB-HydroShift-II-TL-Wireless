@@ -1,26 +1,3 @@
-// Lian Li L-Wireless RX — Finder (SignalRGB plugin)
-// Reads the wireless device list from the RX dongle and shows each device's MAC,
-// RX slot and channel, plus live pump/fan RPM and coolant temperature.
-// It has no LEDs; it exists so the HydroShift II plugin knows which device to drive.
-//
-// Community plugin, not affiliated with Lian Li or WhirlwindFX.
-// Protocol ported from sgtaziz/lian-li-linux (MIT). License: MIT
-
-export function Name() { return "Lian Li Wireless RX (Finder)"; }
-export function VendorId() { return 0x0416; }
-export function ProductId() { return 0x8041; }
-export function Publisher() { return "ShkourArrio"; }
-export function Documentation() { return ""; }
-export function Type() { return "rawusb"; }
-export function Size() { return [1, 1]; }
-export function DefaultPosition() { return [0, 0]; }
-export function DefaultScale() { return 1.0; }
-export function ImageUrl() { return ""; }
-export function ConflictingProcesses() { return ["L-Connect 3.exe"]; }
-export function ControllableParameters() { return []; }
-export function LedNames() { return []; }
-export function LedPositions() { return []; }
-
 // ---------------------------------------------------------------------------
 // Lian Li L-Wireless protocol core (shared by the TX and RX plugins).
 //
@@ -351,13 +328,28 @@ function llBuildRgbUpload(frames, intervalMs, effectIndex) {
 	const intervalFraction = hundredths % 100;
 	const dataPackets = Math.ceil(compressed.length / LL_RGB_CHUNK_BYTES);
 
+	// FNV-1a over the payload + timing, as the vendor uploader does. The high
+	// bit keeps the first byte from ever looking like a valid RX slot.
+	let hash = 0x811c9dc5;
+	const feed = (b) => {
+		hash = Math.imul(hash ^ (b & 0xff), 0x01000193) >>> 0;
+	};
+	compressed.forEach(feed);
+	llU16BE(intervalTicks).forEach(feed);
+	feed(intervalFraction);
+	llU16BE(frames.length).forEach(feed);
+	feed(ledCount);
+	[0, 0, 0, 0, 0].forEach(feed); // secondary interval (u16), secondary frames (u16), outer_longest
+	const autoIndex = llU32BE(hash);
+	autoIndex[0] |= 0x80;
+
 	return {
 		compressed,
 		ledCount,
 		frameCount: frames.length,
 		intervalTicks,
 		intervalFraction,
-		effectIndex: effectIndex.slice(0, 4),
+		effectIndex: (effectIndex || autoIndex).slice(0, 4),
 		packetCount: dataPackets + 1,
 	};
 }
@@ -428,6 +420,8 @@ function llParseDeviceRecord(d) {
 		],
 		mbRgbSync: (status & 0x40) !== 0,
 		cmdSeq: d[40],
+		fanTypes: d.slice(24, 28),
+		effectIndex: d.slice(20, 24),
 	};
 }
 
@@ -460,24 +454,101 @@ function llDeviceTypeName(t) {
 	}
 }
 
-// LED layout: pump ring first, then each fan ring, matching the firmware order.
-function llBuildLayout(fanCount, rotation, reverse) {
+// Wireless fan family from the per-slot fan type byte (lian-li-linux fan_type.rs).
+function llFanFamily(typeByte) {
+	const b = typeByte;
+	if (b >= 20 && b <= 22) return { name: "UNI FAN SL V3 Wireless", leds: 40 };
+	if (b >= 23 && b <= 26) return { name: "UNI FAN SL V3 Wireless LCD", leds: 40 };
+	if (b === 27 || (b >= 32 && b <= 35)) return { name: "UNI FAN TL Wireless LCD", leds: 26 };
+	if (b >= 28 && b <= 31) return { name: "UNI FAN TL Wireless", leds: 26 };
+	if (b >= 36 && b <= 39) return { name: "UNI FAN SL-INF Wireless", leds: 44 };
+	if (b >= 40 && b <= 42) return { name: "UNI FAN CL Wireless", leds: 24 };
+	if (b >= 43 && b <= 50) return { name: "UNI FAN SL-INF V3 Wireless", leds: 44 };
+	if (b >= 51 && b <= 58) return { name: "UNI FAN TL V3 Wireless", leds: 26 };
+	if (b >= 59 && b <= 62) return { name: "UNI FAN SL V4 Wireless", leds: 52 };
+	if (b === 63) return { name: "UNI FAN P28 V2 Wireless", leds: 9 };
+	if (b === 126 || b === 127) return { name: "UNI FAN CL V2 Wireless", leds: 24 };
+	return null;
+}
+
+// Canvas layout. Index order matches what each device's firmware expects:
+// [0..24) pump-head ring, then fan 1, fan 2, ... (ledsPerFan each).
+function llBuildLayout(fanCount, ledsPerFan, rotation, reverse) {
 	const names = [];
 	const positions = [];
-	const ring = (cx, cy, r, label) => {
-		for (let i = 0; i < LL_LEDS_PER_RING; i++) {
-			let step = reverse ? (LL_LEDS_PER_RING - i) % LL_LEDS_PER_RING : i;
-			step = (step + rotation) % LL_LEDS_PER_RING;
-			const a = -Math.PI / 2 + (2 * Math.PI * step) / LL_LEDS_PER_RING;
+	const ring = (count, cx, cy, r, label) => {
+		for (let i = 0; i < count; i++) {
+			let step = reverse ? (count - i) % count : i;
+			step = (step + Math.round((rotation * count) / LL_LEDS_PER_RING)) % count;
+			const a = -Math.PI / 2 + (2 * Math.PI * step) / count;
 			names.push(`${label} LED ${i + 1}`);
 			positions.push([Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a))]);
 		}
 	};
-	ring(6 + 12 * fanCount, 6, 5, "Pump");
+	ring(LL_LEDS_PER_RING, 6 + 12 * fanCount, 6, 5, "Pump");
 	for (let f = 0; f < fanCount; f++) {
-		ring(6 + 12 * f, 6, 5, `Fan ${f + 1}`);
+		ring(ledsPerFan, 6 + 12 * f, 6, 5, `Fan ${f + 1}`);
 	}
-	return { names, positions, size: [12 * (fanCount + 1), 12] };
+	return {
+		names,
+		positions,
+		size: [12 * (fanCount + 1), 12],
+		pumpCount: LL_LEDS_PER_RING,
+		fanLedCount: fanCount * ledsPerFan,
+	};
+}
+
+// ------------------------- SignalRGB glue helpers --------------------------
+
+function llLog(msg) {
+	try {
+		device.log(`[LianLi] ${msg}`, {toFile: true});
+	} catch (e) {
+		device.log(`[LianLi] ${msg}`);
+	}
+}
+
+// SignalRGB rawusb bulk_transfer returns {length, data}; length < 0 = failure.
+function llToArray(r) {
+	if (r === undefined || r === null) {
+		return [];
+	}
+	if (Array.isArray(r)) {
+		return r;
+	}
+	if (typeof r === "object") {
+		const n = typeof r.length === "number" ? r.length : -1;
+		if (n <= 0) {
+			return [];
+		}
+		const d = r.data;
+		if (d && typeof d.length === "number") {
+			return Array.from(d).slice(0, n).map((b) => b & 0xff);
+		}
+		return Array.from(r).slice(0, n);
+	}
+	return [];
+}
+
+// IN transfers need a pre-sized buffer, one 64-byte USB packet at a time.
+function llBulkRead(timeoutMs) {
+	return llToArray(device.bulk_transfer(0x81, new Array(64).fill(0), 64, timeoutMs));
+}
+
+function llBulkWrite(packet) {
+	device.bulk_transfer(0x01, packet, packet.length, 100);
+}
+
+function llFlushIn() {
+	for (let i = 0; i < 16; i++) {
+		if (!llBulkRead(5).length) {
+			return;
+		}
+	}
+}
+
+function llHex(a) {
+	return (a || []).slice(0, 64).map((b) => (b & 0xff).toString(16).padStart(2, "0")).join(" ");
 }
 
 // RF pacing: frames to a new target or of a new kind wait out the air gap.
@@ -493,126 +564,22 @@ function llGapBefore(last, target, opcode, nowMs) {
 	return Math.max(0, gap - (nowMs - last.sentAt));
 }
 
-
-const EP_OUT = 0x01;
-const EP_IN = 0x81;
-const POLL_MS = 3000;
-
-let lastPoll = 0;
-let shownIds = [];
-let lastSummary = "";
-
-export function Validate(endpoint) {
-	return endpoint.interface === 0;
-}
-
-export function Initialize() {
-	device.log("RX Finder started.");
-	poll();
-}
-
-export function Render() {
-	if (Date.now() - lastPoll >= POLL_MS) {
-		poll();
-	}
-}
-
-export function Shutdown() {
-	clearMessages();
-}
-
-function poll() {
-	lastPoll = Date.now();
-	let records;
-	try {
-		records = getDev();
-	} catch (e) {
-		device.log(`GetDev failed: ${e}`);
-		return;
-	}
-	if (!records) {
-		return;
-	}
-
-	const devices = records.filter((r) => !r.isMaster);
-	const summary = devices.map(describe).join(" | ");
-	if (summary !== lastSummary) {
-		device.log(devices.length ? `Wireless devices: ${summary}` : "No wireless devices reported yet.");
-		lastSummary = summary;
-	}
-
-	clearMessages();
-	if (!devices.length) {
-		addMessage("ll_none", "No wireless devices found yet", "Check the AIO is powered and bound in L-Connect 3, then close L-Connect 3.");
-		return;
-	}
-	devices.forEach((d, i) => {
-		const isAio = d.deviceType === 10 || d.deviceType === 11;
-		const title = isAio
-			? `${llDeviceTypeName(d.deviceType)} — MAC ${llMacToString(d.mac)}`
-			: `${llDeviceTypeName(d.deviceType)} — MAC ${llMacToString(d.mac)}`;
-		let tip = `RX slot ${d.rxType}, channel ${d.channel}, ${d.fanCount} fan(s). Fans RPM: ${d.fanRpm.slice(0, 3).join(" / ")}`;
-		if (isAio) {
-			tip += `, pump ${d.fanRpm[3]} RPM, coolant ${d.coolantC || "?"} °C`;
-			if (d.mbRgbSync) {
-				tip += ". Motherboard RGB sync is ON — turn it off in L-Connect 3 first.";
-			}
-		}
-		addMessage(`ll_dev_${i}`, title, tip);
-	});
-}
-
-function describe(d) {
-	let s = `${llDeviceTypeName(d.deviceType)} ${llMacToString(d.mac)} rx=${d.rxType} ch=${d.channel} fans=${d.fanCount}`;
-	if (d.deviceType === 10 || d.deviceType === 11) {
-		s += ` pump=${d.fanRpm[3]}rpm coolant=${d.coolantC}C mbSync=${d.mbRgbSync}`;
-	}
-	return s;
-}
-
-function getDev() {
-	flushIn();
-	const cmd = new Array(64).fill(0);
-	cmd[0] = LL_USB_CMD_SEND_RF;
-	cmd[1] = 1; // one page = up to 10 devices
-	device.bulk_transfer(EP_OUT, cmd, 64, 100);
-
-	let resp = [];
-	let first = true;
-	while (resp.length < 512) {
-		const chunk = device.bulk_transfer(EP_IN, [], 512, first ? 100 : 10);
-		first = false;
-		if (!Array.isArray(chunk) || chunk.length === 0) {
-			break;
-		}
-		resp = resp.concat(chunk);
-	}
-	return llParseGetDev(resp);
-}
-
-function flushIn() {
-	for (let i = 0; i < 16; i++) {
-		const r = device.bulk_transfer(EP_IN, [], 512, 5);
-		if (!Array.isArray(r) || r.length === 0) {
-			return;
-		}
-	}
-}
-
-function addMessage(id, text, tip) {
-	try {
-		device.addMessage(id, text, tip);
-		shownIds.push(id);
-	} catch (e) {
-		device.log(`${text} (${tip})`);
-	}
-}
-
-function clearMessages() {
-	for (const id of shownIds) {
-		try {
-			device.removeMessage(id);
-		} catch (e) { /* ignore */ }
-	}
-	shownIds = [];
+if (typeof module !== "undefined") {
+	module.exports = {
+		tuzCompress,
+		llParseMac,
+		llMacToString,
+		llRfToUsbPackets,
+		llBuildClockFrame,
+		llGetMacPacket,
+		llValidMasterResponse,
+		llChannelProbeOrder,
+		llBuildRgbUpload,
+		llRgbPacket,
+		llParseDeviceRecord,
+		llParseGetDev,
+		llBuildLayout,
+		llFanFamily,
+		llGapBefore,
+	};
 }

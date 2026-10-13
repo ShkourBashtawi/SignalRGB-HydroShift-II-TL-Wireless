@@ -1,92 +1,143 @@
-# Lian Li HydroShift II (Wireless) — SignalRGB Plugin
+# SignalRGB × Lian Li HydroShift II + UNI FAN TL Wireless
 
-Community SignalRGB plugin that drives the **Lian Li HydroShift II LCD-S / LCD-C** AIO
-over the **L-Wireless** dongles. It controls the pump-head ring and the fan rings live
-from the SignalRGB canvas (about 10 updates per second).
+Control the lighting of the **Lian Li HydroShift II** (wireless) and **UNI FAN TL Wireless** fans from **SignalRGB**, live, together with the rest of your setup.
 
-> ⚠️ **Experimental, community-made, not affiliated with Lian Li or WhirlwindFX.**
-> It has been verified against the reference protocol implementation and the official
-> tinyuz decoder, but **not yet on every real unit**. Read "Before you start" first.
+> 🇯🇴 Arabic guide: [README.ar.md](README.ar.md)
 
-## What's included
+| Status | |
+|---|---|
+| ✅ Works | HydroShift II LCD-S pump ring + 3× UNI FAN TL Wireless, live from the SignalRGB canvas |
+| 🧪 Should work, untested | HydroShift II LCD-C, other UNI FAN Wireless fans (SL V3, SL-INF, CL, TL V3, SL V4, P28 V2) |
+| ❌ Not included | LCD screen content, fan/pump speed control |
 
-| File | USB device | Purpose |
-|------|-----------|---------|
-| `LianLi_HydroShift_II_Wireless.js` | TX dongle `0416:8040` | Sends the lighting to the AIO |
-| `LianLi_Wireless_RX_Finder.js` | RX dongle `0416:8041` | Finds the AIO's MAC and shows pump RPM + coolant temperature |
+> ⚠️ Community project. Not affiliated with Lian Li or WhirlwindFX. Use at your own risk.
+
+---
 
 ## Before you start
 
-- **L-Connect 3 must be fully closed.** Both apps need the same USB dongles, and only one can hold them.
-- **While L-Connect 3 is closed, you lose the LCD, fan curves and pump curves.** The plugin only does
-  lighting. Fans and pump should keep the last speed L-Connect 3 set, so **before closing it, set a fixed
-  fan and pump speed you're happy with.**
-- On the first test, watch the **pump RPM and coolant temperature** on the RX Finder device page.
-  If the pump shows 0 RPM or the temperature keeps climbing, close SignalRGB and reopen L-Connect 3.
-- In L-Connect 3, **turn off Motherboard RGB Sync** for the AIO before closing it.
+- **L-Connect 3 must be fully closed**, including its background service. Both apps need the same USB dongles, and only one can use them at a time.
+- While L-Connect is closed you **lose the LCD, fan curves and pump curves**. Fans and pump keep the last speed L-Connect set, so **set the speeds you want in L-Connect first**.
+- In L-Connect, turn **off Motherboard RGB Sync** for your devices.
 
-## Install
+### Stop L-Connect permanently (one time)
 
-1. In L-Connect 3, set the fan and pump speeds you want and turn off MB RGB Sync for the AIO.
-2. Fully quit L-Connect 3: tray icon → Exit. Then check Task Manager and end any remaining
-   `L-Connect 3` / `L-Connect Service` processes. If a Windows service exists for it, stop it in `services.msc`.
-3. Copy both `.js` files to:
+1. In L-Connect 3, set your fan and pump speeds, then quit it from the tray icon.
+2. Press `Win + R`, type `services.msc`, press Enter.
+3. Open **L-Connect Service**, set **Startup type** to **Manual**, click **Stop**, then **OK**.
+
+To go back to L-Connect at any time, start that service again and open L-Connect 3.
+
+---
+
+## Install (SignalRGB Add-on)
+
+1. Open SignalRGB → **Settings** → **Add-ons**.
+2. Click **Add Add-on** and paste this repository's URL:
    ```
-   C:\Users\<you>\Documents\WhirlwindFX\Plugins\LianLi\
+   https://github.com/ShkourBashtawi/SignalRGB-HydroShift-II-TL-Wireless
    ```
-   (or `OneDrive\Documents\WhirlwindFX\Plugins\LianLi\` if Documents is synced)
-4. Restart SignalRGB.
+3. Restart SignalRGB.
 
-## First run
+Two new devices appear under **Devices**:
 
-1. Open the **"Lian Li Wireless RX (Finder)"** device. Its page shows something like:
-   `HydroShift II LCD-S (Wireless) — MAC 3c:11:22:33:44:55`
-   Hover it to see the RX slot, channel, fan count, pump RPM and coolant temperature.
-2. Open **"Lian Li HydroShift II (Wireless)"** and enter:
-   - **AIO MAC**: the MAC from step 1
-   - **RX Slot**: the slot from step 1 (or leave `255` to broadcast)
-   - **Fans on the AIO**: `3` for a 360
-3. The lights should now follow your SignalRGB effect.
+| Device | What it does |
+|---|---|
+| **Lian Li Wireless RX (Finder)** | Reads your wireless devices and prints the values you need. No LEDs. |
+| **Lian Li HydroShift II (Wireless)** | Sends the lighting to the pump and fans. |
+
+---
+
+## Setup (about 2 minutes)
+
+### 1. Get your values from the Finder
+
+Open **Lian Li Wireless RX (Finder)** and click the **console** icon `>_` at the top right. You'll see something like:
+
+```
+[PUMP] HydroShift II LCD-S (Wireless)  MAC e7:f5:f3:e5:66:e1  RX slot 2  channel 39  ...
+[FANS] UNI FAN TL Wireless x3 (26 LEDs/fan)  MAC 81:0c:73:e5:66:e1  RX slot 1  channel 39  ...
+```
+
+### 2. Enter them in the HydroShift II device
+
+Open **Lian Li HydroShift II (Wireless)** → **Settings**:
+
+| Setting | Take it from | Example |
+|---|---|---|
+| Pump MAC | `[PUMP] … MAC` | `e7:f5:f3:e5:66:e1` |
+| Pump RX Slot | `[PUMP] … RX slot` | `2` |
+| Fans MAC | `[FANS] … MAC` | `81:0c:73:e5:66:e1` |
+| Fans RX Slot | `[FANS] … RX slot` | `1` |
+| Fan Count | `[FANS] … x3` | `3` |
+| LEDs per Fan | `[FANS] … (26 LEDs/fan)` | `26` |
+| Device Channel | `channel` | `39` |
+| TX Master Channel | leave it | `Auto` |
+| Updates per Second | your choice | `15` |
+
+> Your values are different from the examples. Every device has its own MAC.
+
+### 3. Test
+
+Set **Lighting Mode** to **Forced** and pick a color. The pump and fans should change within a second. Then set it back to **Canvas**.
+
+SignalRGB saves these settings, so you only do this once.
+
+---
 
 ## Tuning
 
 | Setting | Use it when |
-|--------|-------------|
-| Ring Rotation | The effect looks rotated on a ring |
-| Reverse Ring Direction | A spiral or rainbow runs the wrong way |
-| Updates per Second | You see stutter: try 8 or 5 |
-| Wireless Channel | The TX isn't found automatically: pick the channel L-Connect 3 used |
-| Lighting Mode → Forced | Test with one solid colour |
+|---|---|
+| Updates per Second | The animation stutters: try `15` or `18` (max). Flicker: try `10`. |
+| Ring Rotation | The effect looks rotated on the rings |
+| Reverse Ring Direction | Spirals or rainbows spin the wrong way |
+| No pump or no fans | Leave that MAC as `00:00:00:00:00:00` to skip it |
+
+**About smoothness:** Lian Li's wireless system was built to receive an effect and play it on its own. Streaming every frame over the radio is limited to roughly **15–18 updates per second** at best. Slow and medium effects look great; very fast ones can look slightly choppy.
+
+---
 
 ## Troubleshooting
 
-- **The devices don't appear in SignalRGB.** L-Connect 3 (or its service) is still running, or the
-  dongle uses a driver SignalRGB can't open. Check the SignalRGB device log.
-- **"Wireless TX did not answer"**: close L-Connect 3 completely and restart SignalRGB. If it still
-  fails, set the Wireless Channel manually.
-- **The Finder shows no devices**: the AIO must be powered and already bound to this dongle (bind it once in L-Connect 3).
-- **Only some LEDs light, or the colours are offset**: check "Fans on the AIO" matches the fan count the Finder reports.
+| Problem | Fix |
+|---|---|
+| The two devices don't appear | `L-Connect-Service.exe` is still running. Stop it (see above) and restart SignalRGB. |
+| Finder shows "No wireless devices" | The devices must be powered and already bound to this dongle. Bind them once in L-Connect, then close it. |
+| "Wireless TX did not answer" | Close L-Connect completely, restart SignalRGB. |
+| Colors never change | Re-check the MACs, RX slots and Device Channel against the Finder. |
+| It stops working after a Windows restart | The L-Connect service started again. Set its Startup type to Manual. |
+| Wrong colors on part of a fan | Check Fan Count and LEDs per Fan match the Finder. |
 
-## Uninstall / roll back
+---
 
-Delete the two `.js` files, restart SignalRGB and reopen L-Connect 3. Nothing is written to the AIO's
-firmware. The plugin only sends live lighting frames.
+## How it works (short)
 
-## How it works
+- The **TX dongle** (`0416:8040`) sends commands over the air; the **RX dongle** (`0416:8041`) reports the device list.
+- Every update is a one-frame **RF_SET_RGB** upload: colors are compressed with **tinyuz**, split into 240-byte RF frames and sent as 64-byte USB packets.
+- A 1-second **clock heartbeat** keeps the fans out of their fallback mode.
 
-- Finds the TX dongle's wireless channel and master MAC (`USB GetMac`, channel 8 first).
-- Sends the 1-second `RF_ClockSync` heartbeat the fans expect from the host.
-- For every update it builds a one-frame `RF_SET_RGB` upload (pump ring first, then each fan,
-  24 LEDs each), compresses it with tinyuz, and sends it as 240-byte RF frames split into 64-byte USB packets.
+Details: [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
-## Verification done
+## Verified
 
-- tinyuz encoder: 86 inputs (solid, gradients, random, 18 KB animations) all round-trip through the
-  **official tinyuz decoder**, built with and without literal-line support.
-- RF packets: byte-for-byte identical to the reference Rust implementation (32 packets + heartbeat).
-- End-to-end simulation of both plugins against a mock dongle: the decoded payload equals the canvas colours for all 96 LEDs.
+- Hardware: HydroShift II LCD-S 360 TL + 3× UNI FAN TL Wireless, L-Wireless TX/RX V1.6, SignalRGB 2.5.79 beta, Windows 11.
+- Tests (`test/run_all.sh`): the compressor round-trips 86 inputs through the **official tinyuz decoder**; RF packets and effect indexes are byte-identical to the reference Rust implementation; the parser is tested on a real dongle reply.
 
-## Credits & license
+## For developers
 
-MIT. Protocol knowledge from [sgtaziz/lian-li-linux](https://github.com/sgtaziz/lian-li-linux) (MIT).
-Compression format from [sisong/tinyuz](https://github.com/sisong/tinyuz) (MIT).
+```bash
+python3 build.py        # rebuild the two plugin files from src/
+./test/run_all.sh       # needs node, gcc/g++, and tinyuz + HDiffPatch in ./vendor
+```
+
+Edit `src/` (`core.cjs`, `*.tpl`), not the generated `.js` files at the root. Only the two root `.js` files use the `.js` extension, because SignalRGB loads every `.js` file in an add-on as a plugin.
+
+## Credits
+
+- Protocol: [sgtaziz/lian-li-linux](https://github.com/sgtaziz/lian-li-linux) (MIT)
+- Compression format: [sisong/tinyuz](https://github.com/sisong/tinyuz) (MIT)
+
+## License
+
+[MIT](LICENSE)

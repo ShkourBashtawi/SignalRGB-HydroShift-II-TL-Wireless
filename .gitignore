@@ -1,0 +1,8 @@
+test/tools/tuzdec
+test/tools/tuzdec_nolit
+test/tools/tuzenc
+test/*.bin
+vendor/
+node_modules/
+.DS_Store
+Thumbs.db
