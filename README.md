@@ -52,30 +52,28 @@ Two new devices appear under **Devices**:
 
 ### 1. Get your values from the Finder
 
-Open **Lian Li Wireless RX (Finder)** and click the **console** icon `>_` at the top right. You'll see something like:
+Open **Lian Li Wireless RX (Finder)** and click the **console** icon `>_` at the top right. You'll see a ready-to-copy block:
 
 ```
-[PUMP] HydroShift II LCD-S (Wireless)  MAC e7:f5:f3:e5:66:e1  RX slot 2  channel 39  ...
-[FANS] UNI FAN TL Wireless x3 (26 LEDs/fan)  MAC 81:0c:73:e5:66:e1  RX slot 1  channel 39  ...
+==================================================
+ COPY THESE INTO: Lian Li HydroShift II (Wireless)
+==================================================
+  Pump MAC ........... e7:f5:f3:e5:66:e1
+  Pump RX Slot ....... 2
+  Fans MAC ........... 81:0c:73:e5:66:e1
+  Fans RX Slot ....... 1
+  Fan Count .......... 3
+  LEDs per Fan ....... 26
+  Device Channel ..... 39
+  TX Master Channel .. Auto
+==================================================
 ```
 
-### 2. Enter them in the HydroShift II device
+> Your values will be different. Every device has its own MAC.
 
-Open **Lian Li HydroShift II (Wireless)** → **Settings**:
+### 2. Copy them into the HydroShift II device
 
-| Setting | Take it from | Example |
-|---|---|---|
-| Pump MAC | `[PUMP] … MAC` | `e7:f5:f3:e5:66:e1` |
-| Pump RX Slot | `[PUMP] … RX slot` | `2` |
-| Fans MAC | `[FANS] … MAC` | `81:0c:73:e5:66:e1` |
-| Fans RX Slot | `[FANS] … RX slot` | `1` |
-| Fan Count | `[FANS] … x3` | `3` |
-| LEDs per Fan | `[FANS] … (26 LEDs/fan)` | `26` |
-| Device Channel | `channel` | `39` |
-| TX Master Channel | leave it | `Auto` |
-| Updates per Second | your choice | `15` |
-
-> Your values are different from the examples. Every device has its own MAC.
+Open **Lian Li HydroShift II (Wireless)** → **Settings**. The settings have the **same names, in the same order** as the block. Copy each value across, and set **Updates per Second** to `15`.
 
 ### 3. Test
 

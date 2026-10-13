@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 — 2026-10-13
+
+- RX Finder prints a ready-to-copy settings block with the exact setting names and order.
+- HydroShift II settings renamed to match (Pump MAC, Pump RX Slot, Fans MAC, …) and reordered; saved values are kept.
+- Less log noise: the Finder no longer logs a USB timeout every 5 seconds; pump/fan status is logged once a minute.
+
 ## 1.0.0 — 2026-10-13
 
 First working release.

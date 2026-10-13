@@ -39,28 +39,28 @@
 
 ### 1. خذ القيم من الـ Finder
 
-افتح **Lian Li Wireless RX (Finder)** واضغط أيقونة **`>_`** فوق على اليمين. رح تشوف شي زي:
+افتح **Lian Li Wireless RX (Finder)** واضغط أيقونة **`>_`** فوق على اليمين. رح يطلعلك بلوك جاهز للنسخ:
 
 ```
-[PUMP] HydroShift II LCD-S (Wireless)  MAC e7:f5:f3:e5:66:e1  RX slot 2  channel 39
-[FANS] UNI FAN TL Wireless x3 (26 LEDs/fan)  MAC 81:0c:73:e5:66:e1  RX slot 1  channel 39
+==================================================
+ COPY THESE INTO: Lian Li HydroShift II (Wireless)
+==================================================
+  Pump MAC ........... e7:f5:f3:e5:66:e1
+  Pump RX Slot ....... 2
+  Fans MAC ........... 81:0c:73:e5:66:e1
+  Fans RX Slot ....... 1
+  Fan Count .......... 3
+  LEDs per Fan ....... 26
+  Device Channel ..... 39
+  TX Master Channel .. Auto
+==================================================
 ```
-
-### 2. حطّها بجهاز HydroShift II ← الإعدادات
-
-| الإعداد | من وين | مثال |
-|---|---|---|
-| Pump MAC | سطر `[PUMP]` ← MAC | `e7:f5:f3:e5:66:e1` |
-| Pump RX Slot | سطر `[PUMP]` ← RX slot | `2` |
-| Fans MAC | سطر `[FANS]` ← MAC | `81:0c:73:e5:66:e1` |
-| Fans RX Slot | سطر `[FANS]` ← RX slot | `1` |
-| Fan Count | سطر `[FANS]` ← x3 | `3` |
-| LEDs per Fan | سطر `[FANS]` ← LEDs/fan | `26` |
-| Device Channel | channel | `39` |
-| TX Master Channel | خلّيه | `Auto` |
-| Updates per Second | حسب ذوقك | `15` |
 
 > **قيمك غير الأمثلة.** كل جهاز إله MAC خاص فيه.
+
+### 2. انسخها لجهاز HydroShift II
+
+افتح **Lian Li HydroShift II (Wireless)** ← **الإعدادات**. الإعدادات إلها **نفس الأسماء وبنفس الترتيب** اللي بالبلوك، فانسخ كل قيمة لمكانها. وحط **Updates per Second** على `15`.
 
 ### 3. جرّب
 

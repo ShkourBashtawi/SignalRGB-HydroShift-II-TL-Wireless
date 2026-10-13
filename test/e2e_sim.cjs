@@ -38,6 +38,6 @@ let rxIn=[];const rxMsgs={},rxLogs=[];
 const rx={bulk_transfer(ep,data,len){if(ep<0x80){if(data[0]===0x10)rxIn=[real.slice(0,64),real.slice(64,128),real.slice(128,192)];return {length:64};}return rxIn.length?pkt(rxIn.shift()):{length:-1};},pause(){},log(m){rxLogs.push(String(m));},addMessage(id,t,tip){rxMsgs[id]=t+' :: '+tip;},removeMessage(id){delete rxMsgs[id];}};
 load('LianLi_Wireless_RX_Finder.js',rx,{}).Initialize();
 console.log(rxLogs.map(l=>'     '+l).join('\n'));
-ok(rxLogs.join('\n').includes('[PUMP] HydroShift II LCD-S (Wireless)  MAC e7:f5:f3:e5:66:e1  RX slot 2  channel 39'),'finder: pump line');
-ok(rxLogs.join('\n').includes('[FANS] UNI FAN TL Wireless x3 (26 LEDs/fan)  MAC 81:0c:73:e5:66:e1  RX slot 1  channel 39'),'finder: fans line');
+const J=rxLogs.join('\n');ok(J.includes('Pump MAC ........... e7:f5:f3:e5:66:e1')&&J.includes('Pump RX Slot ....... 2'),'finder: pump values');
+ok(J.includes('Fans MAC ........... 81:0c:73:e5:66:e1')&&J.includes('Fans RX Slot ....... 1')&&J.includes('Fan Count .......... 3')&&J.includes('LEDs per Fan ....... 26')&&J.includes('Device Channel ..... 39'),'finder: fan values + channel');
 console.log(fail?`\n${fail} FAILED`:'\nALL PASSED');process.exit(fail?1:0);
