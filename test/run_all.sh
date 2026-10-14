@@ -25,4 +25,5 @@ node e2e_lcd.cjs | tail -1
 node pwm_vs_rust.cjs | tail -1
 node e2e_fan.cjs | tail -1
 node e2e_auto.cjs | tail -1
+node e2e_fan_auto.cjs | tail -1
 node pic_vs_rust.cjs | tail -1

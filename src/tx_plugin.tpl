@@ -47,6 +47,7 @@ ScreenUnitColor:readonly
 PumpSpeed:readonly
 PumpHead:readonly
 FanControl:readonly
+FanStop:readonly
 HwEffect:readonly
 HwSpeed:readonly
 HwColor:readonly
@@ -72,6 +73,7 @@ export function ControllableParameters() {
 		{"property":"UpdateRate", "group":"", "label":"Updates per Second", "type":"combobox", "values":["5", "10", "15", "18"], "default":"15"},
 		{"property":"RingRotation", "group":"", "label":"Ring Rotation", "type":"number", "min":"0", "max":"23", "step":"1", "default":"0"},
 		{"property":"RingReverse", "group":"", "label":"Reverse Ring Direction", "type":"boolean", "default":"false"},
+		{"property":"FanStop", "group":"", "label":"Fans at 0%", "description":"What a 0% point on a SignalRGB fan curve does. Minimum speed keeps the fans turning (safer: a fresh or empty curve reads 0%).", "type":"combobox", "values":["Minimum speed", "Stop the fans"], "default":"Minimum speed"},
 		{"property":"FanControl", "group":"", "label":"Fan & Pump Control", "description":"SignalRGB Fan Control drives the pump and every fan from curves on SignalRGB's Fan Control page. Off leaves the speeds the devices already have.", "type":"combobox", "values":["Off (keep current speeds)", "SignalRGB Fan Control"], "default":"Off (keep current speeds)"},
 		{"property":"ScreenMode", "group":"", "label":"LCD Screen", "type":"combobox", "values":["Off (don't touch)", "CPU/GPU Sensors"], "default":"Off (don't touch)"},
 		{"property":"ScreenTheme", "group":"", "label":"LCD Theme", "type":"combobox", "values":["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"1"},
@@ -909,10 +911,11 @@ function screenStatus(now, rec, fresh) {
 
 const FAN_TICK_MS = 1000;
 const PWM_QUIET_MS = 40;
+const FAN_SETTLE_MS = 3000;
 let fan = freshFanState();
 
 function freshFanState() {
-	return { active: false, created: [], lastTick: 0, pumpRpm: 3200, pumpRestore: 0, originalChannel: 0, handBackChannel: 0, waitSince: 0, history: [], sentAny: false, rxZeroLogged: false, lastPwm: [0, 0, 0, 0], original: null, restoreLeft: 0, pwmLogged: 0, disabledLogged: false };
+	return { active: false, created: [], lastTick: 0, pumpRpm: 3200, pumpRestore: 0, originalChannel: 0, handBackChannel: 0, waitSince: 0, history: [], sentAny: false, rxZeroLogged: false, lastPwm: [0, 0, 0, 0], original: null, restoreLeft: 0, pwmLogged: 0, disabledLogged: false, startedAt: 0, zeroWarned: "" };
 }
 
 function fanControlOn() {
@@ -952,6 +955,38 @@ function safeCall(fn) {
 	}
 }
 
+// The controls SignalRGB should show for the devices as they are now.
+function wantedFanControls(rec) {
+	const names = [];
+	if (pumpMac) names.push("Pump");
+	if (fansMac) names.push(...fanNames(rec));
+	return names;
+}
+
+function syncFanControls(rec) {
+	const want = wantedFanControls(rec);
+	const added = want.filter((n) => !fan.created.includes(n));
+	const removed = fan.created.filter((n) => !want.includes(n));
+	if (!added.length && !removed.length) {
+		return;
+	}
+	for (const n of removed) {
+		safeCall(() => device.removeFanControl(n));
+	}
+	for (const n of added) {
+		safeCall(() => device.createFanControl(n));
+	}
+	fan.created = want;
+	if (added.some((n) => n.startsWith("Fan "))) {
+		fan.startedAt = Date.now(); // let SignalRGB settle the new controls
+		if (!fan.original && rec && rec.pwm) {
+			fan.original = llSafeHandBack(rec.pwm, rec.fans);
+			fan.originalChannel = rec.ch;
+		}
+	}
+	llLog(`Fan Control entries now: ${want.join(", ")}.`);
+}
+
 function startFanControl(rec) {
 	if (safeCall(() => device.fanControlDisabled())) {
 		if (!fan.disabledLogged) {
@@ -960,17 +995,16 @@ function startFanControl(rec) {
 		}
 		return false;
 	}
-	const names = [];
-	if (pumpMac) names.push("Pump");
-	if (fansMac) names.push(...fanNames(rec));
+	const names = wantedFanControls(rec);
 	for (const n of names) {
 		safeCall(() => device.createFanControl(n));
 	}
 	safeCall(() => device.createTemperatureSensor("Coolant"));
 	fan.created = names;
 	fan.active = true;
+	fan.startedAt = Date.now();
 	fan.pumpRestore = 0;
-	fan.original = rec && rec.pwm ? rec.pwm.slice() : null;
+	fan.original = rec && rec.pwm ? llSafeHandBack(rec.pwm, rec.fans) : null;
 	fan.originalChannel = rec ? rec.ch : 0;
 	llLog(`Fan & Pump Control on: ${names.join(", ")} added to SignalRGB Fan Control${fan.original ? ` (fan PWM before: ${fan.original.join("/")})` : ""}.`);
 	return true;
@@ -1071,6 +1105,11 @@ function fanTick(now) {
 	}
 	const rec = fansRecord();
 	if (!fan.active) {
+		// Nothing to control until the pump/fans are known (auto setup fills
+		// them in from the RX Finder a moment after start).
+		if (!pumpMac && !fansMac) {
+			return;
+		}
 		// Wait (up to 5 s) for the Finder, so the speeds and channel the fans had
 		// before we took over are known and can be handed back later.
 		if (fansMac && !rec) {
@@ -1084,6 +1123,10 @@ function fanTick(now) {
 		}
 	}
 
+	// Keep the Fan Control entries in step with the devices (auto setup can
+	// find the fans, or a different fan count, after control started).
+	syncFanControls(rec);
+
 	// Pump: level -> RPM -> timer (sent by screenTick with the aio params).
 	// A missing level keeps the last speed (full speed until the first real one).
 	if (pumpMac) {
@@ -1094,14 +1137,32 @@ function fanTick(now) {
 	}
 
 	// Fans: one duty per slot. A missing level keeps the duty the fan had.
-	if (fansMac) {
-		const names = fan.created.filter((n) => n.startsWith("Fan "));
+	// Right after the controls are created SignalRGB can still report 0 for
+	// every fan, so the first seconds keep the speed the fans already run at.
+	const fanNamesNow = fan.created.filter((n) => n.startsWith("Fan "));
+	if (fansMac && fanNamesNow.length) {
+		const names = fanNamesNow;
+		const settling = now - fan.startedAt < FAN_SETTLE_MS;
+		const allowStop = typeof FanStop !== "undefined" && FanStop === "Stop the fans";
 		const pwm = [0, 0, 0, 0];
+		const zero = [];
 		names.forEach((n, i) => {
-			const level = levelOf(n);
-			const hold = fan.sentAny ? fan.lastPwm[i] : (rec && rec.pwm ? rec.pwm[i] : 255);
+			const level = settling ? null : levelOf(n);
+			const hold = fan.sentAny ? fan.lastPwm[i] : (rec && rec.pwm && rec.pwm[i] ? rec.pwm[i] : 255);
 			pwm[i] = level === null ? hold : Math.round(level * 255);
+			if (level !== null && pwm[i] === 0 && !allowStop) {
+				pwm[i] = 1; // raised to the fan's minimum duty when the frame is built
+				zero.push(n);
+			}
 		});
+		const zeroKey = zero.join(",");
+		if (zeroKey && zeroKey !== fan.zeroWarned) {
+			llLog(`SignalRGB asks 0% for ${zero.join(", ")}: running at minimum speed instead. Set a curve for them on the Cooling page (or set 'Fans at 0%' to 'Stop the fans').`);
+			safeCall(() => device.addMessage("ll_fan0", "Fan curve at 0%", `${zero.join(", ")} run at minimum speed. Check their curves on SignalRGB's Cooling page.`));
+		} else if (!zeroKey && fan.zeroWarned) {
+			safeCall(() => device.removeMessage("ll_fan0"));
+		}
+		fan.zeroWarned = zeroKey;
 		const smooth = llSmoothPwm(fan.history, pwm);
 		fan.history = smooth.history;
 		const sent = sendFanPwm(smooth.out);

@@ -126,7 +126,8 @@ ok(fans.lost <= 4, `at most a few frames lost while the Finder catches up (${fan
 const rgbFans = frames.filter((f) => f.data[1] === 0x20 && FANS.every((b, i) => f.data[2 + i] === b));
 ok(rgbFans.length && rgbFans[rgbFans.length - 1].ch === 8, "colour frames follow the fans to channel 8");
 ok(pf && pf.data[14] === 1 && pf.data[15] === 8 && pf.data[16] === 2, "fan PWM header: rx 1, master channel 8, slot index 2");
-ok(fans.pwm.join() === "153,28,0,0", `levels 0.6 / 0.02 / 0 -> PWM 153 / 28 (TL floor 11%) / 0, slot 4 off (${fans.pwm.join("/")})`);
+ok(fans.pwm.join() === "153,28,28,0", `levels 0.6 / 0.02 / 0 -> PWM 153 / 28 (TL floor 11%) / 28 (0% = minimum speed), slot 4 off (${fans.pwm.join("/")})`);
+ok(txLogs.some((l) => l.includes("SignalRGB asks 0% for Fan 3")), "a 0% curve is reported in the log");
 ok(fans.frames.length >= 8 && fans.frames.length <= 12, `PWM keep-alive once a second, sent twice (${fans.frames.length} in 5 s)`);
 const p = aio.params[aio.params.length - 1].data.slice(18, 50);
 ok(((p[28] << 8) | p[29]) === 800, `pump level 0.5 -> 2400 rpm -> timer 800 (${(p[28] << 8) | p[29]})`);
@@ -154,7 +155,12 @@ for (let i = 0; i < 10; i++) hist = L.llSmoothPwm(hist, [200, 0, 0, 0]).history;
 const avg = L.llSmoothPwm(hist, [150, 0, 0, 0]);
 ok(avg.out[0] === 195, `small changes are averaged over 10 samples (${avg.out[0]})`);
 ok(L.llSmoothPwm(hist, [40, 0, 0, 0]).out[0] === 40, "a big jump resets the average");
-ok(fans.pwm.join() === "153,28,0,0", "no fan levels -> fans keep their current duty");
+ok(fans.pwm.join() === "153,28,28,0", "no fan levels -> fans keep their current duty");
+tx.ctx.FanStop = "Stop the fans";
+api.levels = { Pump: 0.5, "Fan 1": 0.6, "Fan 2": 0.02, "Fan 3": 0 };
+step(12000);
+ok(fans.pwm.join() === "153,28,0,0", `'Fans at 0%' = Stop the fans -> Fan 3 stops (${fans.pwm.join("/")})`);
+tx.ctx.FanStop = "Minimum speed";
 
 // turn off -> controls removed, fans and pump handed back
 tx.ctx.FanControl = "Off (keep current speeds)";
@@ -181,7 +187,7 @@ ok(txLogs.some((l) => l.includes("Fan Control is disabled in SignalRGB")), "expl
 // Fan Control switched off in SignalRGB while driving -> stop and hand back
 api.disabled = false;
 api.levels = { Pump: 0.5, "Fan 1": 0.6, "Fan 2": 0.6, "Fan 3": 0.6 };
-step(6000);
+step(16000);
 ok(api.controls.has("Fan 1") && fans.pwm[0] === 153, `re-enabled -> driving again (${fans.pwm.join("/")})`);
 api.disabled = true;
 api.levels = { Pump: 0, "Fan 1": 0, "Fan 2": 0, "Fan 3": 0 }; // what SignalRGB reports once disabled

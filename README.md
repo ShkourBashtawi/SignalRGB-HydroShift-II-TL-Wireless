@@ -24,6 +24,7 @@ Control the lighting of the **Lian Li HydroShift II** (wireless) and **UNI FAN T
 - **L-Connect 3 must be fully closed**, including its background service. Both apps need the same USB dongles, and only one can use them at a time.
 - While L-Connect is closed, L-Connect's fan and pump curves stop. Either keep the last speeds L-Connect set (default), or let SignalRGB run the curves with [Fan & Pump Control](#fan--pump-control). The LCD can show temperatures with the [LCD sensor screen](#lcd-sensor-screen-cpu--gpu-temperature).
 - In L-Connect, turn **off Motherboard RGB Sync** for your devices.
+- Wireless fans have no cable to the motherboard: they only spin when something talks to the dongle. With L-Connect stopped they stand still from power-on until SignalRGB starts after sign-in. The [Fan Handoff](#fans-spin-from-boot-fan-handoff) fixes that.
 
 ### Stop L-Connect permanently (one time)
 
@@ -172,7 +173,7 @@ SignalRGB can run the pump and every fan from curves on its **Fan Control** page
 
 | | How it works |
 |---|---|
-| Fans | 0-100 % curve → PWM duty, sent once a second (the fans fall back to their own default if the host goes quiet). Floor 11 % for TL fans; a curve at 0 % stops the fan. |
+| Fans | 0-100 % curve → PWM duty, sent once a second (the fans fall back to their own default if the host goes quiet). Floor 11 % for TL fans. A curve at 0 % runs the fan at that minimum unless **Fans at 0%** is `Stop the fans`. |
 | Pump | 0-100 % curve → 1600-3200 rpm (LCD-S) or 1600-2500 rpm (LCD-C), sent inside the LCD data packet. Starts at full speed until the first curve value. |
 | Safety | A missing or in-between value keeps the last speed instead of stopping; small changes are averaged over 10 samples. Turning Fan Control off for the device in SignalRGB hands the fans back instead of stopping them. Fans without an RX slot are never sent speeds. |
 | Turning it off | The fans get their previous duty and channel back, and the pump goes back to **Pump Speed**. |
@@ -180,6 +181,26 @@ SignalRGB can run the pump and every fan from curves on its **Fan Control** page
 > ℹ️ The pump speed travels in the same packet as the LCD settings, so while Fan & Pump Control is on the LCD shows the **LCD Theme** you picked (with values only when **LCD Screen** is `CPU/GPU Sensors`).
 >
 > ℹ️ The first speed command makes the fans switch to the TX's master channel. The plugin follows each device on the channel the Finder reports, and moves the fans back to **Device Channel** when you turn the feature off.
+
+---
+
+## Fans spin from boot (Fan Handoff)
+
+SignalRGB only starts after you sign in to Windows, and the wireless fans don't spin until something talks to the dongle. The Fan Handoff lets **L-Connect Service** run the fans from power-on, on the curves you saved in L-Connect, and hands the dongle to SignalRGB as soon as it is running.
+
+1. Open L-Connect 3 once, set your fan and pump speeds, then quit it from the tray.
+2. In the `helper` folder run **`Install-Fan-Handoff.bat`** (asks for admin).
+3. Restart Windows. The fans spin before you sign in, and SignalRGB takes over a few seconds after it opens.
+
+| | What it does |
+|---|---|
+| L-Connect Service | Set to **Automatic**: runs the fans from boot |
+| L-Connect Service Watcher | Stays **Disabled** (it would restart the service) |
+| Task at sign-in | Waits for SignalRGB, then stops L-Connect Service. If SignalRGB doesn't pick the devices up within 30 s it restarts SignalRGB once. If SignalRGB never starts, the service keeps running the fans. |
+
+Log: `%LOCALAPPDATA%\HydroShiftFanHandoff\handoff.log`. To undo, run **`Uninstall-Fan-Handoff.bat`** (L-Connect Service goes back to Disabled).
+
+> Between sign-in and the handoff you see L-Connect's lighting for a few seconds.
 
 ---
 
@@ -208,7 +229,8 @@ SignalRGB can run the pump and every fan from curves on its **Fan Control** page
 | Hardware effect "not confirmed" | Check the Finder is enabled and the devices are in range; the plugin retries by itself. |
 | Fan & Pump Control does nothing | Check the device's **Cooling** tab: Fan control must be enabled for it in SignalRGB. The console says so when it isn't. |
 | Fans run at 50 % after closing SignalRGB | That's the fans' own fallback when the host goes quiet. Reopen L-Connect to set them, or keep SignalRGB running. |
-| It stops working after a Windows restart | The L-Connect service started again. Set its Startup type to Manual. |
+| It stops working after a Windows restart | The L-Connect service started again and nothing stopped it. Set its Startup type to Manual, or use the [Fan Handoff](#fans-spin-from-boot-fan-handoff), which stops it for you. |
+| Fans don't spin until SignalRGB opens | Expected without L-Connect: wireless fans need the dongle. Install the [Fan Handoff](#fans-spin-from-boot-fan-handoff). |
 | Wrong colors on part of a fan | Check Fan Count and LEDs per Fan match the Finder. |
 | LCD shows `--` | The helper isn't running (run `Test-Sensors.bat`), or that value needs LibreHardwareMonitor. |
 | LCD doesn't switch to the sensor theme | Keep the RX Finder enabled; check the console for `LCD switched to the sensor theme`. |
@@ -233,6 +255,7 @@ Details: [docs/PROTOCOL.md](docs/PROTOCOL.md)
 - LCD tests: theme-switch frames, sequence numbers and both pump-speed curves (4,000+ values) match the Rust implementation; an end-to-end simulation runs both plugins and the helper protocol against a fake AIO (switch + ack, values, stale helper, pump watchdog, LCD off).
 - Fan tests: PWM frames for 7 fan families × 7 duty sets are byte-identical to Rust; a simulation covers curves → PWM, pump curve → timer, RPM/coolant publishing, the channel move, hand-back, and SignalRGB fan control being disabled.
 - Auto-setup tests: with every setting at its default, both plugins find the pump and 3 TL fans, address them on the right slots, and ride out a pump that misses replies without flicker. Hardware effects: every built-in effect decodes through the official tinyuz decoder to frames × LEDs × RGB; a simulation covers upload, Finder confirmation, retry, re-upload after a power cycle, Canvas Loop and storing on exit.
+- Fan Handoff tested on the hardware above: fans spin from power-on and SignalRGB takes over after sign-in.
 - Live on the hardware above: fans followed the curve (PWM 194 → ~1966 rpm), pump followed (2849 → 2912 rpm), and hand-back restored pump 3180 rpm and fan channel 39. Hardware effects played on the pump and fans and were confirmed through the RX Finder; the LCD showed CPU/GPU values from LibreHardwareMonitor.
 
 ## For developers

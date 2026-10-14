@@ -768,6 +768,17 @@ function llSmoothPwm(history, target, size, resetJump) {
 	return { history: h, out };
 }
 
+// Duty to hand the fans back at when control stops. A fan that was stopped
+// (or barely turning) when control started is handed back at 60 % instead,
+// so switching Fan Control off never leaves the fans standing still.
+function llSafeHandBack(pwm, fanCount) {
+	const n = fanCount > 0 ? fanCount : 4;
+	return [0, 1, 2, 3].map((i) => {
+		const v = pwm[i] || 0;
+		return i < n && v < 51 ? 153 : v;
+	});
+}
+
 function llPwmFrame(mac, master, rxSlot, masterChannel, slotIndex, pwm) {
 	const rf = llAioHeader(LL_RF_PWM_CMD, mac, master, rxSlot, masterChannel, slotIndex);
 	for (let k = 0; k < 4; k++) {
@@ -1080,6 +1091,7 @@ if (typeof module !== "undefined") {
 		llAioHeader,
 		llIsClFan,
 		llSmoothPwm,
+		llSafeHandBack,
 		llLog,
 		llToArray,
 		llBulkRead,
