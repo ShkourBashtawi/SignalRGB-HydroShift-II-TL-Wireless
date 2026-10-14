@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0 — 2026-10-14
+
+- **Automatic setup**: Pump MAC, RX slots, fan count, LEDs per fan and channel are taken from the RX Finder. Leave them at their defaults (`00:00:00:00:00:00`, `Broadcast`, `Auto`); values set by hand still win, so existing setups keep working.
+- **Hardware effects**: new Lighting Mode `Hardware Effect` uploads a whole looping animation (Rainbow Wave, Rainbow Spin, Color Cycle, Breathing, Spinner, Static, or Canvas Loop = 4 s recorded from the running SignalRGB effect). The devices play it on their own at up to 20 fps. Each upload is confirmed through the effect index the RX Finder reports and re-sent if a device missed it or was power-cycled.
+- **When SignalRGB Closes**: `Hardware Effect` stores the effect on the way out so the lighting keeps running with SignalRGB closed.
+- Fan & Pump Control safety (from the official Lian Li wireless plugin's behaviour): never sends PWM 6 (the "follow motherboard" value), a missing or in-between curve value keeps the last speed, small changes are averaged over 10 samples, turning Fan Control off for the device in SignalRGB hands the fans back instead of stopping them, and devices without an RX slot (0) are never sent speeds.
+- RX Finder remembers a device for 15 s when it misses a reply, so the pump no longer flickers out of the settings block or the auto setup.
+- Sensor helper 1.4: the install test run no longer blocks the background copy from starting (single-instance lock is only taken by the background copy; the task is started after the test).
+- Tests: new auto-setup + hardware-effect simulation, every built-in effect checked with the official tinyuz decoder, more fan-safety checks.
+
 ## 1.3.0 — 2026-10-13
 
 - **Fan & Pump Control**: the pump and each fan appear on SignalRGB's Fan Control page and follow its curves (RF_PWM_CMD for fans, pump timer in the aio params). Coolant temperature is published as a sensor, live RPM from the RX Finder. Off by default; turning it off hands the previous fan duty, fan channel and the Pump Speed setting back.

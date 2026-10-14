@@ -28,7 +28,7 @@ function load(file, device, params) {
 	const src = fs.readFileSync(P + file, "utf8")
 		.replace(/^import udp from "@SignalRGB\/udp";$/m, "")
 		.replace(/^export /gm, "");
-	const ctx = vm.createContext({ device, console, Date: FakeDate, Math, JSON, udp, ...params });
+	const ctx = vm.createContext({ device, console, Date: FakeDate, Math, JSON, udp, ...require("./param_defaults.cjs")(P + file), ...params });
 	vm.runInContext(src + "\n;this.__api={Initialize,Render,Shutdown};this.__ctx=this;", ctx);
 	return { api: ctx.__api, ctx };
 }
@@ -135,11 +135,25 @@ ok(p[8] + p[9] + p[10] + p[11] === 0, "LCD Screen Off: params carry no sensor va
 ok(api.rpm["Fan 1"] === 1530 && api.rpm["Fan 2"] === 280 && api.rpm.Pump === aio.rpm, `RPM published to Fan Control (fan1 ${api.rpm["Fan 1"]}, pump ${api.rpm.Pump})`);
 ok(api.temps.Coolant === 35, "coolant temperature published");
 
-// level missing -> pump safe at max, fans keep their duty
+// level missing -> pump and fans keep their last speed
 api.levels = { "Fan 1": undefined };
 step(2000);
 const p2 = aio.params[aio.params.length - 1].data.slice(18, 50);
-ok(((p2[28] << 8) | p2[29]) === 0, "no pump level -> full speed (timer 0)");
+ok(((p2[28] << 8) | p2[29]) === 800, `no pump level -> pump keeps 2400 rpm (timer ${(p2[28] << 8) | p2[29]})`);
+
+// a slightly negative level is the curve interpolator, not "stop": hold
+api.levels = { Pump: 0.5, "Fan 1": -0.01, "Fan 2": 0.02, "Fan 3": 0 };
+step(2000);
+ok(fans.pwm[0] === 153, `negative level on Fan 1 -> keeps 153 (${fans.pwm[0]})`);
+
+// PWM 6 means "follow the motherboard" to the fans: never send it
+const sm = L.llSmoothPwm([], [6, 6, 5, 7]);
+ok(sm.out.join() === "7,7,5,7", `PWM 6 is never sent (${sm.out.join("/")})`);
+let hist = [];
+for (let i = 0; i < 10; i++) hist = L.llSmoothPwm(hist, [200, 0, 0, 0]).history;
+const avg = L.llSmoothPwm(hist, [150, 0, 0, 0]);
+ok(avg.out[0] === 195, `small changes are averaged over 10 samples (${avg.out[0]})`);
+ok(L.llSmoothPwm(hist, [40, 0, 0, 0]).out[0] === 40, "a big jump resets the average");
 ok(fans.pwm.join() === "153,28,0,0", "no fan levels -> fans keep their current duty");
 
 // turn off -> controls removed, fans and pump handed back
@@ -164,5 +178,15 @@ const f0 = fans.frames.length, a0 = aio.params.length;
 step(3000);
 ok(fans.frames.length === f0 && api.controls.size === 0, "fan control disabled in SignalRGB -> no PWM, no controls");
 ok(txLogs.some((l) => l.includes("Fan Control is disabled in SignalRGB")), "explains why in the log");
+// Fan Control switched off in SignalRGB while driving -> stop and hand back
+api.disabled = false;
+api.levels = { Pump: 0.5, "Fan 1": 0.6, "Fan 2": 0.6, "Fan 3": 0.6 };
+step(6000);
+ok(api.controls.has("Fan 1") && fans.pwm[0] === 153, `re-enabled -> driving again (${fans.pwm.join("/")})`);
+api.disabled = true;
+api.levels = { Pump: 0, "Fan 1": 0, "Fan 2": 0, "Fan 3": 0 }; // what SignalRGB reports once disabled
+step(5000);
+ok(api.controls.size === 0, "disabled at runtime -> controls removed");
+ok(fans.pwm.join() === "186,186,186,0", `disabled at runtime -> fans handed back, not stopped (${fans.pwm.join("/")})`);
 console.log(fail ? `\n${fail} FAILED` : "\nALL PASSED");
 process.exit(fail ? 1 : 0);

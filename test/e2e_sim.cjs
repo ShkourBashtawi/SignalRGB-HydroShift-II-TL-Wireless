@@ -2,7 +2,7 @@
 // using the user's real device IDs (pump + TL fans on channel 39, master on 8).
 const fs=require('fs'),vm=require('vm'),cp=require('child_process');
 const T=__dirname,P=T+'/../';
-function load(file,device,params){const src=fs.readFileSync(P+file,'utf8').replace(/^import udp from "@SignalRGB\/udp";$/m,"const udp={createSocket(){return {on(){},bind(){},write(){},close(){}};}};").replace(/^export /gm,'');const ctx=vm.createContext({device,console,Date,Math,JSON,...params});vm.runInContext(src+'\n;this.__api={Initialize,Render,Shutdown,LedNames,LedPositions,Validate};',ctx);return ctx.__api;}
+function load(file,device,params){const src=fs.readFileSync(P+file,'utf8').replace(/^import udp from "@SignalRGB\/udp";$/m,"const udp={createSocket(){return {on(){},bind(){},write(){},close(){}};}};").replace(/^export /gm,'');const ctx=vm.createContext({device,console,Date,Math,JSON,...require("./param_defaults.cjs")(P+file),...params});vm.runInContext(src+'\n;this.__api={Initialize,Render,Shutdown,LedNames,LedPositions,Validate};',ctx);return ctx.__api;}
 let fail=0;const ok=(c,m)=>{if(!c){fail++;console.log('FAIL',m);}else console.log('ok  ',m);};
 const MASTER=[0xe6,0xd8,0x71,0xe5,0x66,0xe4],PUMP=[0xe7,0xf5,0xf3,0xe5,0x66,0xe1],FANS=[0x81,0x0c,0x73,0xe5,0x66,0xe1];
 const writes=[];let pendingIn=[];const logs=[];const msgs={};

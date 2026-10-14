@@ -47,18 +47,26 @@ ScreenUnitColor:readonly
 PumpSpeed:readonly
 PumpHead:readonly
 FanControl:readonly
+HwEffect:readonly
+HwSpeed:readonly
+HwColor:readonly
+OnExit:readonly
 */
 export function ControllableParameters() {
 	return [
 		{"property":"shutdownColor", "group":"lighting", "label":"Shutdown Color", "min":"0", "max":"360", "type":"color", "default":"#000000"},
-		{"property":"LightingMode", "group":"lighting", "label":"Lighting Mode", "type":"combobox", "values":["Canvas", "Forced"], "default":"Canvas"},
+		{"property":"LightingMode", "group":"lighting", "label":"Lighting Mode", "type":"combobox", "values":["Canvas", "Forced", "Hardware Effect"], "default":"Canvas"},
 		{"property":"forcedColor", "group":"lighting", "label":"Forced Color", "min":"0", "max":"360", "type":"color", "default":"#009bde"},
-		{"property":"PumpMac", "group":"", "label":"Pump MAC", "type":"textfield", "default":"00:00:00:00:00:00"},
-		{"property":"PumpRxSlot", "group":"", "label":"Pump RX Slot", "type":"combobox", "values":["Broadcast", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"Broadcast"},
-		{"property":"FansMac", "group":"", "label":"Fans MAC", "type":"textfield", "default":"00:00:00:00:00:00"},
-		{"property":"FansRxSlot", "group":"", "label":"Fans RX Slot", "type":"combobox", "values":["Broadcast", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"Broadcast"},
-		{"property":"FanCount", "group":"", "label":"Fan Count", "type":"combobox", "values":["1", "2", "3", "4"], "default":"3"},
-		{"property":"LedsPerFan", "group":"", "label":"LEDs per Fan", "type":"combobox", "values":["26", "24", "40", "44", "52", "9"], "default":"26"},
+		{"property":"HwEffect", "group":"lighting", "label":"Hardware Effect", "description":"Stored on the pump and fans and played by them at 20 frames per second. Used by Lighting Mode 'Hardware Effect' and by 'When SignalRGB Closes'. Canvas Loop records 4 seconds of the current SignalRGB effect.", "type":"combobox", "values":["Rainbow Wave", "Rainbow Spin", "Color Cycle", "Breathing", "Spinner", "Static", "Canvas Loop"], "default":"Rainbow Wave"},
+		{"property":"HwSpeed", "group":"lighting", "label":"Effect Speed", "type":"number", "min":"1", "max":"10", "step":"1", "default":"5"},
+		{"property":"HwColor", "group":"lighting", "label":"Effect Color", "description":"For Breathing, Spinner and Static.", "min":"0", "max":"360", "type":"color", "default":"#009bde"},
+		{"property":"OnExit", "group":"lighting", "label":"When SignalRGB Closes", "description":"Hardware Effect leaves the stored effect running on the devices after SignalRGB exits.", "type":"combobox", "values":["Shutdown Color", "Hardware Effect"], "default":"Shutdown Color"},
+		{"property":"PumpMac", "group":"", "label":"Pump MAC", "description":"Leave 00:00:00:00:00:00 to use the pump the RX Finder sees (automatic).", "type":"textfield", "default":"00:00:00:00:00:00"},
+		{"property":"PumpRxSlot", "group":"", "label":"Pump RX Slot", "description":"Broadcast = take it from the RX Finder (automatic).", "type":"combobox", "values":["Broadcast", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"Broadcast"},
+		{"property":"FansMac", "group":"", "label":"Fans MAC", "description":"Leave 00:00:00:00:00:00 to use the fan group the RX Finder sees (automatic).", "type":"textfield", "default":"00:00:00:00:00:00"},
+		{"property":"FansRxSlot", "group":"", "label":"Fans RX Slot", "description":"Broadcast = take it from the RX Finder (automatic).", "type":"combobox", "values":["Broadcast", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"Broadcast"},
+		{"property":"FanCount", "group":"", "label":"Fan Count", "type":"combobox", "values":["Auto", "1", "2", "3", "4"], "default":"Auto"},
+		{"property":"LedsPerFan", "group":"", "label":"LEDs per Fan", "type":"combobox", "values":["Auto", "26", "24", "40", "44", "52", "9"], "default":"Auto"},
 		{"property":"DeviceChannel", "group":"", "label":"Device Channel", "type":"combobox", "values":["Same as TX", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"], "default":"Same as TX"},
 		{"property":"WirelessChannel", "group":"", "label":"TX Master Channel", "type":"combobox", "values":["Auto", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"], "default":"Auto"},
 		{"property":"UpdateRate", "group":"", "label":"Updates per Second", "type":"combobox", "values":["5", "10", "15", "18"], "default":"15"},
@@ -386,15 +394,23 @@ function llChannelProbeOrder() {
 // Build every RF frame for one RGB upload (header + data chunks).
 // frames: array of frames, each an array of [r,g,b] for every LED.
 function llBuildRgbUpload(frames, intervalMs, effectIndex) {
-	if (!frames.length) {
-		throw new Error("RGB upload needs at least one frame");
+	if (intervalMs < 1 || intervalMs > 40959) {
+		throw new Error("RGB interval must be 1..40959 ms");
+	}
+	return llBuildRgbUploadTicks(frames, intervalMs * 160, effectIndex);
+}
+
+// Same, with the interval in hundredths of a 0.625 ms RF tick.
+function llBuildRgbUploadTicks(frames, hundredths, effectIndex) {
+	if (!frames.length || frames.length > 4096) {
+		throw new Error("RGB upload needs 1..4096 frames");
 	}
 	const ledCount = frames[0].length;
 	if (ledCount < 1 || ledCount > 255) {
 		throw new Error("RGB upload needs 1..255 LEDs per frame");
 	}
-	if (intervalMs < 1 || intervalMs > 40959) {
-		throw new Error("RGB interval must be 1..40959 ms");
+	if (hundredths < 100 || hundredths > 6553599) {
+		throw new Error("RGB interval out of range");
 	}
 
 	const raw = [];
@@ -412,7 +428,6 @@ function llBuildRgbUpload(frames, intervalMs, effectIndex) {
 		throw new Error("compressed RGB animation is too large");
 	}
 
-	const hundredths = intervalMs * 160; // 0.625 ms RF ticks, in hundredths
 	const intervalTicks = Math.floor(hundredths / 100);
 	const intervalFraction = hundredths % 100;
 	const dataPackets = Math.ceil(compressed.length / LL_RGB_CHUNK_BYTES);
@@ -568,13 +583,17 @@ function llFanFamily(typeByte) {
 function llBuildLayout(fanCount, ledsPerFan, rotation, reverse) {
 	const names = [];
 	const positions = [];
+	const meta = []; // per LED: ring step / count (exact), x across the canvas 0..1
+	const width = 12 * (fanCount + 1);
 	const ring = (count, cx, cy, r, label) => {
 		for (let i = 0; i < count; i++) {
 			let step = reverse ? (count - i) % count : i;
 			step = (step + Math.round((rotation * count) / LL_LEDS_PER_RING)) % count;
 			const a = -Math.PI / 2 + (2 * Math.PI * step) / count;
 			names.push(`${label} LED ${i + 1}`);
-			positions.push([Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a))]);
+			const x = Math.round(cx + r * Math.cos(a));
+			positions.push([x, Math.round(cy + r * Math.sin(a))]);
+			meta.push({ step, count, x: (cx + r * Math.cos(a)) / width });
 		}
 	};
 	ring(LL_LEDS_PER_RING, 6 + 12 * fanCount, 6, 5, "Pump");
@@ -584,6 +603,7 @@ function llBuildLayout(fanCount, ledsPerFan, rotation, reverse) {
 	return {
 		names,
 		positions,
+		meta,
 		size: [12 * (fanCount + 1), 12],
 		pumpCount: LL_LEDS_PER_RING,
 		fanLedCount: fanCount * ledsPerFan,
@@ -814,6 +834,30 @@ function llPreparePwm(pwm, rec) {
 	return out;
 }
 
+// L-Connect never sends the raw value a curve produced: it averages the last
+// ten requests (and drops the history on a big jump), so a temperature that
+// wanders a little does not make the fans hunt. 6 is reserved by the firmware
+// ("follow the motherboard header"), so a real request for it becomes 7.
+const LL_PWM_FOLLOW_MB = 6;
+
+function llSmoothPwm(history, target, size, resetJump) {
+	const n = size || 10;
+	const jump = resetJump || 100;
+	let h = history || [];
+	if (h.length && target.some((v, k) => Math.abs(v - h[0][k]) > jump)) {
+		h = [];
+	}
+	h = h.concat([target.slice()]);
+	while (h.length > n) {
+		h.shift();
+	}
+	const out = [0, 1, 2, 3].map((k) => {
+		const mean = Math.round(h.reduce((sum, row) => sum + (row[k] || 0), 0) / h.length);
+		return mean === LL_PWM_FOLLOW_MB ? LL_PWM_FOLLOW_MB + 1 : mean;
+	});
+	return { history: h, out };
+}
+
 function llPwmFrame(mac, master, rxSlot, masterChannel, slotIndex, pwm) {
 	const rf = llAioHeader(LL_RF_PWM_CMD, mac, master, rxSlot, masterChannel, slotIndex);
 	for (let k = 0; k < 4; k++) {
@@ -951,6 +995,139 @@ function llGapBefore(last, target, opcode, nowMs) {
 }
 
 
+// --------------------------- Stored (hardware) effects -----------------------
+// A multi-frame RGB upload is stored on the device, which then loops it by
+// itself at up to 20 frames per second: smooth, no radio traffic, and it keeps
+// running after SignalRGB closes. lian-li-linux limits playback to 50 ms per
+// frame and the compressed animation to 12288 bytes.
+
+const LL_HW_FRAME_MS = 50;
+const LL_HW_MAX_FRAMES = 400;
+const LL_HW_EFFECTS = ["Rainbow Wave", "Rainbow Spin", "Color Cycle", "Breathing", "Spinner", "Static"];
+
+function llHsvToRgb(h, s, v) {
+	h = ((h % 1) + 1) % 1;
+	const i = Math.floor(h * 6);
+	const f = h * 6 - i;
+	const p = v * (1 - s);
+	const q = v * (1 - f * s);
+	const t = v * (1 - (1 - f) * s);
+	const [r, g, b] = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
+	return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function llScale(color, k) {
+	return color.map((c) => Math.max(0, Math.min(255, Math.round(c * k))));
+}
+
+// Effect period in ms for speed 1 (slow) .. 10 (fast).
+function llEffectPeriod(name, speed) {
+	const s = Math.min(10, Math.max(1, Math.round(Number(speed) || 5)));
+	const slow = name === "Breathing" || name === "Color Cycle" ? 12000 : 9000;
+	const fast = name === "Breathing" || name === "Color Cycle" ? 2500 : 1300;
+	return Math.round(slow + ((fast - slow) * (s - 1)) / 9);
+}
+
+// One looping colour function per effect; phase runs 0..1 over the period.
+// steps: frames in the loop; the wave's hue is snapped to the same grid so each
+// frame reuses the previous frames' colours (about 2x smaller upload).
+function llEffectColor(name, led, phase, color, steps) {
+	const angle = led.step / led.count;
+	switch (name) {
+	case "Rainbow Wave": {
+		const h = led.x - phase;
+		return llHsvToRgb(steps ? Math.round(h * steps) / steps : h, 1, 1);
+	}
+	case "Rainbow Spin":
+		return llHsvToRgb(angle - phase, 1, 1);
+	case "Color Cycle":
+		return llHsvToRgb(phase, 1, 1);
+	case "Breathing": {
+		const b = (1 - Math.cos(2 * Math.PI * phase)) / 2;
+		return llScale(color, b * b);
+	}
+	case "Spinner": {
+		const d = (((phase - angle) % 1) + 1) % 1; // distance behind the head
+		const k = Math.max(0, 1 - d * 2.5);
+		return llScale(color, k * k);
+	}
+	default:
+		return color.slice();
+	}
+}
+
+// Frame plan for one device. Spinning effects use a whole number of frames per
+// LED step so every frame is an exact rotation of the last (compresses well).
+function llEffectPlan(name, leds, speed) {
+	if (name === "Static") {
+		return { frames: 1, intervalMs: 1000 };
+	}
+	const period = llEffectPeriod(name, speed);
+	let frames = Math.max(2, Math.round(period / LL_HW_FRAME_MS));
+	if (name === "Rainbow Spin" || name === "Spinner") {
+		const count = leds.length ? leds[0].count : 24;
+		frames = Math.max(1, Math.round(frames / count)) * count;
+	}
+	frames = Math.min(frames, LL_HW_MAX_FRAMES);
+	return { frames, intervalMs: Math.max(LL_HW_FRAME_MS, period / frames) };
+}
+
+function llEffectFrames(name, leds, frames, color) {
+	const out = [];
+	for (let f = 0; f < frames; f++) {
+		out.push(leds.map((led) => llEffectColor(name, led, f / frames, color, frames)));
+	}
+	return out;
+}
+
+// Builds the upload, halving the frame rate until it fits the device memory.
+// intervalMs may be fractional; the RF timing has 1/100 tick precision.
+function llBuildRgbUploadFrac(frames, intervalMs) {
+	return llBuildRgbUploadTicks(frames, Math.round(intervalMs * 160), null);
+}
+
+function llFitAnimation(frames, intervalMs) {
+	let f = frames;
+	let interval = intervalMs;
+	for (;;) {
+		try {
+			const up = llBuildRgbUploadFrac(f, interval);
+			return { upload: up, frames: f.length, intervalMs: interval };
+		} catch (e) {
+			if (!/too large/.test(String(e)) || f.length <= 1) {
+				throw e;
+			}
+			const half = f.filter((_, i) => i % 2 === 0);
+			interval = (interval * f.length) / half.length;
+			f = half;
+		}
+	}
+}
+
+// Turns a recording into a seamless loop: the last `blend` frames are faded
+// into the first ones, so the end runs straight back into the start.
+function llLoopFrames(recorded, blend) {
+	const b = Math.max(0, Math.min(blend, Math.floor(recorded.length / 2)));
+	const n = recorded.length - b;
+	const out = [];
+	for (let i = 0; i < n; i++) {
+		if (i < b) {
+			const k = (i + 1) / (b + 1);
+			out.push(recorded[i].map((c, j) => c.map((v, ch) => Math.round(recorded[n + i][j][ch] * (1 - k) + v * k))));
+		} else {
+			out.push(recorded[i]);
+		}
+	}
+	return out;
+}
+
+function llEffectUpload(name, leds, speed, color) {
+	const plan = llEffectPlan(name, leds, speed);
+	const frames = llEffectFrames(name, leds, plan.frames, color);
+	return llFitAnimation(frames, plan.intervalMs);
+}
+
+
 const HEARTBEAT_MS = 1000;
 const REFRESH_MS = 2000;
 const PROBE_INTERVAL_MS = 150;
@@ -1032,6 +1209,14 @@ export function Render() {
 		return;
 	}
 
+	if (LightingMode === "Hardware Effect") {
+		lastSignature = "";
+		hwTick(now);
+		return;
+	}
+	hw.key = "";
+	hwRoll(now);
+
 	const interval = 1000 / Math.max(1, parseInt(UpdateRate, 10) || 15);
 	if (now - lastSend < interval || now < rgbHoldUntil) {
 		return;
@@ -1051,6 +1236,10 @@ export function Shutdown(SystemSuspending) {
 	stopFanControl("shutdown");
 	closeSensorSocket();
 	if (!masterMac) {
+		return;
+	}
+	if (!SystemSuspending && OnExit === "Hardware Effect") {
+		hwOnExit();
 		return;
 	}
 	const color = SystemSuspending ? "#000000" : shutdownColor;
@@ -1082,11 +1271,61 @@ export function onWirelessChannelChanged() {
 // ------------------------------------------------------------------------
 
 function fanCount() {
-	return Math.min(4, Math.max(1, parseInt(FanCount, 10) || 3));
+	const set = parseInt(FanCount, 10);
+	if (set >= 1 && set <= 4) {
+		return set;
+	}
+	return auto.fans && auto.fans.fans ? Math.min(4, Math.max(1, auto.fans.fans)) : 3;
 }
 
 function ledsPerFan() {
-	return Math.min(64, Math.max(1, parseInt(LedsPerFan, 10) || 26));
+	const set = parseInt(LedsPerFan, 10);
+	if (set >= 1 && set <= 64) {
+		return set;
+	}
+	const family = auto.fans ? llFanFamily((auto.fans.fanTypes || []).find((b) => b !== 0) || 0) : null;
+	return family ? family.leds : 26;
+}
+
+// ---- Auto setup: anything left at its default is filled from the RX Finder ----
+let auto = { pump: null, fans: null, note: "" };
+
+function applyAuto() {
+	if (!finder) {
+		return;
+	}
+	const ours = (d) => !masterMac || d.master === llMacToString(masterMac);
+	const devices = finder.devices.filter((d) => !d.isMaster && ours(d));
+	const pump = devices.find((d) => d.type === 10 || d.type === 11) || null;
+	const fans = devices.find((d) => d.type === 0 && d.fans > 0) || null;
+	auto.pump = llParseMac(PumpMac) ? devices.find((d) => d.mac === llMacToString(llParseMac(PumpMac))) || pump : pump;
+	auto.fans = llParseMac(FansMac) ? devices.find((d) => d.mac === llMacToString(llParseMac(FansMac))) || fans : fans;
+	const wantPump = llParseMac(PumpMac) || (pump ? llParseMac(pump.mac) : null);
+	const wantFans = llParseMac(FansMac) || (fans ? llParseMac(fans.mac) : null);
+	const before = `${pumpMac ? llMacToString(pumpMac) : "-"} ${fansMac ? llMacToString(fansMac) : "-"} ${layout.names.length}`;
+	pumpMac = wantPump;
+	fansMac = wantFans;
+	const oldCount = layout.names.length;
+	const lp = layout.pumpCount;
+	const fanLeds = fanCount() * ledsPerFan();
+	if (oldCount !== lp + fanLeds) {
+		rebuildLayout();
+	}
+	const after = `${pumpMac ? llMacToString(pumpMac) : "-"} ${fansMac ? llMacToString(fansMac) : "-"} ${layout.names.length}`;
+	if (after !== before) {
+		const fam = auto.fans ? llFanFamily((auto.fans.fanTypes || []).find((b) => b !== 0) || 0) : null;
+		llLog(`Auto setup: pump ${pumpMac ? llMacToString(pumpMac) : "none"}, fans ${fansMac ? `${llMacToString(fansMac)} (${fanCount()}x ${fam ? fam.name : "fan"}, ${ledsPerFan()} LEDs each)` : "none"}.`);
+		try {
+			device.removeMessage("ll_mac");
+		} catch (e) { /* ignore */ }
+		lastSignature = "";
+	}
+	const extra = devices.filter((d) => d !== auto.pump && d !== auto.fans).map((d) => d.mac);
+	const note = extra.join(",");
+	if (note && note !== auto.note) {
+		llLog(`Also found ${extra.length} more wireless device(s) not used by this plugin: ${extra.join(", ")}.`);
+	}
+	auto.note = note;
 }
 
 function rebuildLayout() {
@@ -1107,10 +1346,11 @@ function readMacs() {
 	try {
 		device.removeMessage("ll_mac");
 	} catch (e) { /* ignore */ }
+	applyAuto();
 	if (!pumpMac && !fansMac) {
-		llLog("No MAC set yet. Copy them from the 'Lian Li Wireless RX (Finder)' device.");
+		llLog("Waiting for the 'Lian Li Wireless RX (Finder)' device to report the pump and fans (automatic setup).");
 		try {
-			device.addMessage("ll_mac", "Set the Pump / Fans MAC to start lighting", "Copy them from the 'Lian Li Wireless RX (Finder)' device console.");
+			device.addMessage("ll_mac", "Waiting for the RX Finder", "Keep the 'Lian Li Wireless RX (Finder)' device enabled. It finds the pump and fans for this plugin.");
 		} catch (e) { /* ignore */ }
 		return;
 	}
@@ -1209,12 +1449,21 @@ function slot(value) {
 	return n >= 1 && n <= 13 ? n : 0xff;
 }
 
+function rxFor(mac, setting) {
+	const fixed = slot(setting);
+	if (fixed !== 0xff || !finder || !mac) {
+		return fixed;
+	}
+	const rec = finder.devices.find((d) => d.mac === llMacToString(mac));
+	return rec && rec.rx >= 1 && rec.rx <= 13 ? rec.rx : 0xff;
+}
+
 function sendAll(colors) {
 	if (pumpMac) {
-		sendDirect(pumpMac, slot(PumpRxSlot), colors.slice(0, layout.pumpCount));
+		sendDirect(pumpMac, rxFor(pumpMac, PumpRxSlot), colors.slice(0, layout.pumpCount));
 	}
 	if (fansMac) {
-		sendDirect(fansMac, slot(FansRxSlot), colors.slice(layout.pumpCount, layout.pumpCount + layout.fanLedCount));
+		sendDirect(fansMac, rxFor(fansMac, FansRxSlot), colors.slice(layout.pumpCount, layout.pumpCount + layout.fanLedCount));
 	}
 }
 
@@ -1225,6 +1474,10 @@ function sendDirect(targetMac, rxSlot, colors) {
 		sendLogs++;
 		llLog(`RGB -> ${llMacToString(targetMac)} ch ${channelFor(targetMac)} rx ${rxSlot}: ${colors.length} LEDs, ${upload.compressed.length} bytes, ${upload.packetCount} packets, effect ${llHex(upload.effectIndex)}, first colour ${colors[0].join(",")}`);
 	}
+	sendUpload(targetMac, rxSlot, upload);
+}
+
+function sendUpload(targetMac, rxSlot, upload) {
 	const channel = channelFor(targetMac);
 	for (let index = 0; index < upload.packetCount; index++) {
 		const rf = llRgbPacket(upload, targetMac, masterMac, index);
@@ -1266,6 +1519,221 @@ function safeSend(fn) {
 			probeQueue = channelsToProbe();
 			ioErrors = 0;
 		}
+	}
+}
+
+// --------------------------- Hardware (stored) effects ----------------------
+// The whole animation is uploaded once and the pump and fans loop it on their
+// own (up to 20 fps). Smooth, no radio traffic per frame, and it keeps playing
+// after SignalRGB closes. The RX Finder reports the effect each device is
+// playing, so every upload is confirmed and repeated if it did not land.
+
+const HW_RECORD_FRAMES = 80;   // Canvas Loop: 4 s at 20 fps ...
+const HW_BLEND_FRAMES = 12;    // ... plus a crossfade at the loop point
+const HW_RETRY_MS = 4000;
+const HW_MAX_TRIES = 5;
+let hw = freshHwState();
+
+function freshHwState() {
+	return { key: "", targets: [], recording: null, recordStart: 0, lastRecord: 0, checkedAt: 0, loop: null, rolling: [], rollingAt: 0, gaveUp: false };
+}
+
+function hwKey() {
+	const loop = HwEffect === "Canvas Loop";
+	return JSON.stringify([HwEffect, loop ? 0 : HwSpeed, loop ? 0 : HwColor,
+		pumpMac ? llMacToString(pumpMac) : "", fansMac ? llMacToString(fansMac) : "",
+		layout.names.length, RingRotation, RingReverse]);
+}
+
+function finderFresh() {
+	return !!finder && Date.now() - finderAt <= FINDER_STALE_MS;
+}
+
+function recordFor(mac) {
+	if (!finderFresh() || !mac) {
+		return null;
+	}
+	const key = llMacToString(mac);
+	return finder.devices.find((d) => d.mac === key && !d.stale) || null;
+}
+
+// loop: {frames, intervalMs} of whole-layout colours, or null for a generated effect.
+function hwTargets(name, loop) {
+	const out = [];
+	const parts = [
+		[pumpMac, PumpRxSlot, 0, layout.pumpCount, "pump"],
+		[fansMac, FansRxSlot, layout.pumpCount, layout.pumpCount + layout.fanLedCount, "fans"],
+	];
+	for (const [mac, rx, a, b, label] of parts) {
+		if (!mac || b <= a) {
+			continue;
+		}
+		const fit = loop
+			? llFitAnimation(loop.frames.map((f) => f.slice(a, b)), Math.max(LL_HW_FRAME_MS, loop.intervalMs))
+			: llEffectUpload(name, layout.meta.slice(a, b), HwSpeed, hexToRgb(HwColor));
+		out.push({ mac, rx, label, upload: fit.upload, frames: fit.frames, intervalMs: fit.intervalMs, sentAt: 0, tries: 0, ok: false, lostSince: 0 });
+	}
+	return out;
+}
+
+function hwSend(t, now) {
+	t.sentAt = now;
+	t.tries++;
+	safeSend(() => sendUpload(t.mac, rxFor(t.mac, t.rx), t.upload));
+	lastSend = Date.now();
+}
+
+function hwStart(name, loop, now) {
+	try {
+		hw.targets = hwTargets(name, loop);
+	} catch (e) {
+		hw.targets = [];
+		llLog(`Hardware effect ${name} could not be built: ${e}`);
+		return;
+	}
+	hw.gaveUp = false;
+	for (const t of hw.targets) {
+		llLog(`Hardware effect ${name} -> ${t.label} ${llMacToString(t.mac)}: ${t.frames} frames every ${t.intervalMs.toFixed(1)} ms, ${t.upload.compressed.length} bytes in ${t.upload.packetCount} packets, effect ${llHex(t.upload.effectIndex)}.`);
+		hwSend(t, now);
+	}
+	try {
+		device.removeMessage("ll_hw");
+	} catch (e) { /* ignore */ }
+}
+
+function sameFx(rec, upload) {
+	return rec && Array.isArray(rec.fx) && rec.fx.length === 4 && llHex(rec.fx) === llHex(upload.effectIndex);
+}
+
+function hwVerify(now) {
+	if (now - hw.checkedAt < 1000) {
+		return;
+	}
+	hw.checkedAt = now;
+	for (const t of hw.targets) {
+		const rec = recordFor(t.mac);
+		if (t.ok) {
+			// Re-send if the device stopped playing it (power cycle, another app).
+			if (rec && Array.isArray(rec.fx) && !sameFx(rec, t.upload) && now - t.sentAt > HW_RETRY_MS) {
+				if (!t.lostSince) {
+					t.lostSince = now;
+				} else if (now - t.lostSince > 3000) {
+					llLog(`The ${t.label} is no longer playing the hardware effect; uploading it again.`);
+					t.ok = false;
+					t.tries = 0;
+					t.lostSince = 0;
+					hwSend(t, now);
+				}
+			} else {
+				t.lostSince = 0;
+			}
+			continue;
+		}
+		if (sameFx(rec, t.upload)) {
+			t.ok = true;
+			llLog(`Hardware effect is playing on the ${t.label} (confirmed by the RX Finder).`);
+			continue;
+		}
+		if (!finderFresh() && t.tries >= 1 && now - t.sentAt >= HW_RETRY_MS) {
+			t.ok = true; // no Finder to confirm with: one upload is the best we can do
+			llLog(`Hardware effect sent to the ${t.label} (not confirmed: the RX Finder is not running).`);
+			continue;
+		}
+		if (now - t.sentAt < HW_RETRY_MS) {
+			continue;
+		}
+		if (t.tries < HW_MAX_TRIES) {
+			llLog(`The ${t.label} has not confirmed the hardware effect yet (try ${t.tries}); sending it again.`);
+			hwSend(t, now);
+		} else if (!hw.gaveUp) {
+			hw.gaveUp = true;
+			llLog(`The ${t.label} did not take the hardware effect after ${t.tries} tries. Will try again in 30 s.`);
+			try {
+				device.addMessage("ll_hw", "Hardware effect not confirmed", "The device did not report the stored effect. Check the RX Finder and the wireless link.");
+			} catch (e) { /* ignore */ }
+			t.tries = HW_MAX_TRIES - 1;
+			t.sentAt = now + 26000;
+		}
+	}
+}
+
+function hwTick(now) {
+	const key = hwKey();
+	if (key !== hw.key) {
+		hw.key = key;
+		hw.targets = [];
+		hw.recording = null;
+		if (HwEffect === "Canvas Loop") {
+			hw.recording = [];
+			hw.recordStart = now;
+			hw.lastRecord = 0;
+			llLog("Recording 4 seconds of the SignalRGB canvas for the hardware effect...");
+		} else {
+			hwStart(HwEffect, null, now);
+		}
+	}
+	if (hw.recording) {
+		if (now - hw.lastRecord >= LL_HW_FRAME_MS) {
+			if (!hw.recording.length) {
+				hw.recordStart = now;
+			}
+			hw.lastRecord = now;
+			hw.recording.push(grabColors());
+		}
+		if (hw.recording.length >= HW_RECORD_FRAMES + HW_BLEND_FRAMES) {
+			const intervalMs = (now - hw.recordStart) / (hw.recording.length - 1);
+			hw.loop = { frames: llLoopFrames(hw.recording, HW_BLEND_FRAMES), intervalMs };
+			hw.recording = null;
+			hwStart("Canvas Loop", hw.loop, now);
+		}
+		return;
+	}
+	hwVerify(now);
+}
+
+// While the live canvas runs, keep the last few seconds so "Canvas Loop" can
+// be stored when SignalRGB closes.
+function hwRoll(now) {
+	if (OnExit !== "Hardware Effect" || HwEffect !== "Canvas Loop") {
+		hw.rolling = [];
+		return;
+	}
+	if (now - hw.rollingAt < LL_HW_FRAME_MS) {
+		return;
+	}
+	hw.rollingAt = now;
+	hw.rolling.push({ at: now, colors: grabColors() });
+	while (hw.rolling.length > HW_RECORD_FRAMES + HW_BLEND_FRAMES) {
+		hw.rolling.shift();
+	}
+}
+
+function hwOnExit() {
+	if (LightingMode === "Hardware Effect" && hw.targets.length && hw.key === hwKey()) {
+		llLog("SignalRGB is closing: leaving the hardware effect running.");
+		return;
+	}
+	let name = HwEffect;
+	let loop = null;
+	if (name === "Canvas Loop") {
+		const r = hw.rolling;
+		if (r.length >= 2 * HW_BLEND_FRAMES) {
+			loop = { frames: llLoopFrames(r.map((x) => x.colors), HW_BLEND_FRAMES), intervalMs: (r[r.length - 1].at - r[0].at) / (r.length - 1) };
+		} else if (hw.loop) {
+			loop = hw.loop;
+		} else {
+			name = "Rainbow Wave";
+		}
+	}
+	try {
+		const targets = hwTargets(name, loop);
+		for (const t of targets) {
+			safeSend(() => sendUpload(t.mac, rxFor(t.mac, t.rx), t.upload));
+		}
+		llLog(`SignalRGB is closing: ${name} stored on the devices and left running.`);
+	} catch (e) {
+		llLog(`Could not store the hardware effect on exit (${e}); using the shutdown color.`);
+		safeSend(() => sendAll(grabColors(shutdownColor)));
 	}
 }
 
@@ -1323,6 +1791,7 @@ function onSensorMessage(msg) {
 		if (f) {
 			finder = f;
 			finderAt = Date.now();
+			applyAuto();
 		}
 		return;
 	}
@@ -1337,11 +1806,11 @@ function onSensorMessage(msg) {
 }
 
 function pumpRecord() {
-	if (!finder || !pumpMac || Date.now() - finderAt > FINDER_STALE_MS) {
+	if (!finderFresh() || !pumpMac) {
 		return null;
 	}
 	const mac = llMacToString(pumpMac);
-	return finder.devices.find((d) => d.mac === mac) || null;
+	return finder.devices.find((d) => d.mac === mac && !d.stale) || null;
 }
 
 function pumpSlotIndex() {
@@ -1481,7 +1950,7 @@ const PWM_QUIET_MS = 40;
 let fan = freshFanState();
 
 function freshFanState() {
-	return { active: false, created: [], lastTick: 0, pumpRpm: 3200, pumpRestore: 0, originalChannel: 0, handBackChannel: 0, waitSince: 0, lastPwm: [0, 0, 0, 0], original: null, restoreLeft: 0, pwmLogged: 0, disabledLogged: false };
+	return { active: false, created: [], lastTick: 0, pumpRpm: 3200, pumpRestore: 0, originalChannel: 0, handBackChannel: 0, waitSince: 0, history: [], sentAny: false, rxZeroLogged: false, lastPwm: [0, 0, 0, 0], original: null, restoreLeft: 0, pwmLogged: 0, disabledLogged: false };
 }
 
 function fanControlOn() {
@@ -1489,11 +1958,11 @@ function fanControlOn() {
 }
 
 function fansRecord() {
-	if (!finder || !fansMac || Date.now() - finderAt > FINDER_STALE_MS) {
+	if (!finderFresh() || !fansMac) {
 		return null;
 	}
 	const mac = llMacToString(fansMac);
-	return finder.devices.find((d) => d.mac === mac) || null;
+	return finder.devices.find((d) => d.mac === mac && !d.stale) || null;
 }
 
 function fanSlotIndex() {
@@ -1576,6 +2045,15 @@ function sendFanPwm(pwm, handBackChannel) {
 		: { deviceType: 0, fanCount: fanCount(), rightAttach: false, fanTypes: [28] };
 	const prepared = llPreparePwm(pwm, info);
 	const rx = slot(FansRxSlot) !== 0xff ? slot(FansRxSlot) : (rec ? rec.rx : 0xff);
+	// rx 0 is not an address: it is what a device reports before it was given a
+	// slot. Writing it back in a PWM frame would make that permanent.
+	if (rx === 0) {
+		if (!fan.rxZeroLogged) {
+			fan.rxZeroLogged = true;
+			llLog("Fans report RX slot 0 (not paired to a slot). Not sending fan speeds; re-pair them in L-Connect 3.");
+		}
+		return null;
+	}
 	// Byte 15 is the channel the fans adopt: the master channel while we drive them,
 	// and on hand-back the channel they were set up on, so L-Connect and older
 	// versions of this plugin still find them where they expect.
@@ -1595,9 +2073,14 @@ function sendFanPwm(pwm, handBackChannel) {
 	return prepared;
 }
 
+// null = no usable level. A slightly negative value is the engine's curve
+// interpolator between states, not a request to stop, so it is not used either.
 function levelOf(name) {
 	const v = safeCall(() => device.getNormalizedFanlevel(name));
-	return typeof v === "number" && isFinite(v) ? Math.min(Math.max(v, 0), 1) : null;
+	if (typeof v !== "number" || !isFinite(v) || v < 0) {
+		return null;
+	}
+	return Math.min(v, 1);
 }
 
 function fanTick(now) {
@@ -1611,11 +2094,17 @@ function fanTick(now) {
 	if (fan.restoreLeft > 0) {
 		fan.restoreLeft--;
 		const sent = sendFanPwm(fan.original, fan.handBackChannel);
-		if (fan.restoreLeft === 0) {
+		if (fan.restoreLeft === 0 && sent) {
 			llLog(`Fans handed back at PWM ${sent.join("/")}${fan.handBackChannel ? `, channel ${fan.handBackChannel}` : ""}.`);
 		}
 	}
 	if (!fanControlOn()) {
+		return;
+	}
+	// Turning Fan Control off in SignalRGB makes every level read 0, which would
+	// stop the fans, so treat it like switching the feature off.
+	if (fan.active && safeCall(() => device.fanControlDisabled())) {
+		stopFanControl("Fan Control was disabled in SignalRGB");
 		return;
 	}
 	const rec = fansRecord();
@@ -1634,9 +2123,12 @@ function fanTick(now) {
 	}
 
 	// Pump: level -> RPM -> timer (sent by screenTick with the aio params).
+	// A missing level keeps the last speed (full speed until the first real one).
 	if (pumpMac) {
 		const level = levelOf("Pump");
-		fan.pumpRpm = llPumpRpmFromLevel(level === null ? 1 : level, PumpHead === "LCD-C (round)" ? "circle" : "square");
+		if (level !== null) {
+			fan.pumpRpm = llPumpRpmFromLevel(level, PumpHead === "LCD-C (round)" ? "circle" : "square");
+		}
 	}
 
 	// Fans: one duty per slot. A missing level keeps the duty the fan had.
@@ -1645,10 +2137,16 @@ function fanTick(now) {
 		const pwm = [0, 0, 0, 0];
 		names.forEach((n, i) => {
 			const level = levelOf(n);
-			const fallback = rec && rec.pwm ? rec.pwm[i] : 255;
-			pwm[i] = level === null ? fallback : Math.round(level * 255);
+			const hold = fan.sentAny ? fan.lastPwm[i] : (rec && rec.pwm ? rec.pwm[i] : 255);
+			pwm[i] = level === null ? hold : Math.round(level * 255);
 		});
-		fan.lastPwm = sendFanPwm(pwm);
+		const smooth = llSmoothPwm(fan.history, pwm);
+		fan.history = smooth.history;
+		const sent = sendFanPwm(smooth.out);
+		if (sent) {
+			fan.lastPwm = sent;
+			fan.sentAny = true;
+		}
 		if (fan.pwmLogged < 12) {
 			fan.pwmLogged++;
 			llLog(`Fan PWM -> ${llMacToString(fansMac)} slot ${fanSlotIndex()}: ${fan.lastPwm.join("/")} (device reports ${rec && rec.pwm ? rec.pwm.join("/") : "?"})`);

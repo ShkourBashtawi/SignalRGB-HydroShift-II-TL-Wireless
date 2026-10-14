@@ -304,15 +304,23 @@ function llChannelProbeOrder() {
 // Build every RF frame for one RGB upload (header + data chunks).
 // frames: array of frames, each an array of [r,g,b] for every LED.
 function llBuildRgbUpload(frames, intervalMs, effectIndex) {
-	if (!frames.length) {
-		throw new Error("RGB upload needs at least one frame");
+	if (intervalMs < 1 || intervalMs > 40959) {
+		throw new Error("RGB interval must be 1..40959 ms");
+	}
+	return llBuildRgbUploadTicks(frames, intervalMs * 160, effectIndex);
+}
+
+// Same, with the interval in hundredths of a 0.625 ms RF tick.
+function llBuildRgbUploadTicks(frames, hundredths, effectIndex) {
+	if (!frames.length || frames.length > 4096) {
+		throw new Error("RGB upload needs 1..4096 frames");
 	}
 	const ledCount = frames[0].length;
 	if (ledCount < 1 || ledCount > 255) {
 		throw new Error("RGB upload needs 1..255 LEDs per frame");
 	}
-	if (intervalMs < 1 || intervalMs > 40959) {
-		throw new Error("RGB interval must be 1..40959 ms");
+	if (hundredths < 100 || hundredths > 6553599) {
+		throw new Error("RGB interval out of range");
 	}
 
 	const raw = [];
@@ -330,7 +338,6 @@ function llBuildRgbUpload(frames, intervalMs, effectIndex) {
 		throw new Error("compressed RGB animation is too large");
 	}
 
-	const hundredths = intervalMs * 160; // 0.625 ms RF ticks, in hundredths
 	const intervalTicks = Math.floor(hundredths / 100);
 	const intervalFraction = hundredths % 100;
 	const dataPackets = Math.ceil(compressed.length / LL_RGB_CHUNK_BYTES);
@@ -486,13 +493,17 @@ function llFanFamily(typeByte) {
 function llBuildLayout(fanCount, ledsPerFan, rotation, reverse) {
 	const names = [];
 	const positions = [];
+	const meta = []; // per LED: ring step / count (exact), x across the canvas 0..1
+	const width = 12 * (fanCount + 1);
 	const ring = (count, cx, cy, r, label) => {
 		for (let i = 0; i < count; i++) {
 			let step = reverse ? (count - i) % count : i;
 			step = (step + Math.round((rotation * count) / LL_LEDS_PER_RING)) % count;
 			const a = -Math.PI / 2 + (2 * Math.PI * step) / count;
 			names.push(`${label} LED ${i + 1}`);
-			positions.push([Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a))]);
+			const x = Math.round(cx + r * Math.cos(a));
+			positions.push([x, Math.round(cy + r * Math.sin(a))]);
+			meta.push({ step, count, x: (cx + r * Math.cos(a)) / width });
 		}
 	};
 	ring(LL_LEDS_PER_RING, 6 + 12 * fanCount, 6, 5, "Pump");
@@ -502,6 +513,7 @@ function llBuildLayout(fanCount, ledsPerFan, rotation, reverse) {
 	return {
 		names,
 		positions,
+		meta,
 		size: [12 * (fanCount + 1), 12],
 		pumpCount: LL_LEDS_PER_RING,
 		fanLedCount: fanCount * ledsPerFan,
@@ -732,6 +744,30 @@ function llPreparePwm(pwm, rec) {
 	return out;
 }
 
+// L-Connect never sends the raw value a curve produced: it averages the last
+// ten requests (and drops the history on a big jump), so a temperature that
+// wanders a little does not make the fans hunt. 6 is reserved by the firmware
+// ("follow the motherboard header"), so a real request for it becomes 7.
+const LL_PWM_FOLLOW_MB = 6;
+
+function llSmoothPwm(history, target, size, resetJump) {
+	const n = size || 10;
+	const jump = resetJump || 100;
+	let h = history || [];
+	if (h.length && target.some((v, k) => Math.abs(v - h[0][k]) > jump)) {
+		h = [];
+	}
+	h = h.concat([target.slice()]);
+	while (h.length > n) {
+		h.shift();
+	}
+	const out = [0, 1, 2, 3].map((k) => {
+		const mean = Math.round(h.reduce((sum, row) => sum + (row[k] || 0), 0) / h.length);
+		return mean === LL_PWM_FOLLOW_MB ? LL_PWM_FOLLOW_MB + 1 : mean;
+	});
+	return { history: h, out };
+}
+
 function llPwmFrame(mac, master, rxSlot, masterChannel, slotIndex, pwm) {
 	const rf = llAioHeader(LL_RF_PWM_CMD, mac, master, rxSlot, masterChannel, slotIndex);
 	for (let k = 0; k < 4; k++) {
@@ -868,6 +904,139 @@ function llGapBefore(last, target, opcode, nowMs) {
 	return Math.max(0, gap - (nowMs - last.sentAt));
 }
 
+
+// --------------------------- Stored (hardware) effects -----------------------
+// A multi-frame RGB upload is stored on the device, which then loops it by
+// itself at up to 20 frames per second: smooth, no radio traffic, and it keeps
+// running after SignalRGB closes. lian-li-linux limits playback to 50 ms per
+// frame and the compressed animation to 12288 bytes.
+
+const LL_HW_FRAME_MS = 50;
+const LL_HW_MAX_FRAMES = 400;
+const LL_HW_EFFECTS = ["Rainbow Wave", "Rainbow Spin", "Color Cycle", "Breathing", "Spinner", "Static"];
+
+function llHsvToRgb(h, s, v) {
+	h = ((h % 1) + 1) % 1;
+	const i = Math.floor(h * 6);
+	const f = h * 6 - i;
+	const p = v * (1 - s);
+	const q = v * (1 - f * s);
+	const t = v * (1 - (1 - f) * s);
+	const [r, g, b] = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
+	return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function llScale(color, k) {
+	return color.map((c) => Math.max(0, Math.min(255, Math.round(c * k))));
+}
+
+// Effect period in ms for speed 1 (slow) .. 10 (fast).
+function llEffectPeriod(name, speed) {
+	const s = Math.min(10, Math.max(1, Math.round(Number(speed) || 5)));
+	const slow = name === "Breathing" || name === "Color Cycle" ? 12000 : 9000;
+	const fast = name === "Breathing" || name === "Color Cycle" ? 2500 : 1300;
+	return Math.round(slow + ((fast - slow) * (s - 1)) / 9);
+}
+
+// One looping colour function per effect; phase runs 0..1 over the period.
+// steps: frames in the loop; the wave's hue is snapped to the same grid so each
+// frame reuses the previous frames' colours (about 2x smaller upload).
+function llEffectColor(name, led, phase, color, steps) {
+	const angle = led.step / led.count;
+	switch (name) {
+	case "Rainbow Wave": {
+		const h = led.x - phase;
+		return llHsvToRgb(steps ? Math.round(h * steps) / steps : h, 1, 1);
+	}
+	case "Rainbow Spin":
+		return llHsvToRgb(angle - phase, 1, 1);
+	case "Color Cycle":
+		return llHsvToRgb(phase, 1, 1);
+	case "Breathing": {
+		const b = (1 - Math.cos(2 * Math.PI * phase)) / 2;
+		return llScale(color, b * b);
+	}
+	case "Spinner": {
+		const d = (((phase - angle) % 1) + 1) % 1; // distance behind the head
+		const k = Math.max(0, 1 - d * 2.5);
+		return llScale(color, k * k);
+	}
+	default:
+		return color.slice();
+	}
+}
+
+// Frame plan for one device. Spinning effects use a whole number of frames per
+// LED step so every frame is an exact rotation of the last (compresses well).
+function llEffectPlan(name, leds, speed) {
+	if (name === "Static") {
+		return { frames: 1, intervalMs: 1000 };
+	}
+	const period = llEffectPeriod(name, speed);
+	let frames = Math.max(2, Math.round(period / LL_HW_FRAME_MS));
+	if (name === "Rainbow Spin" || name === "Spinner") {
+		const count = leds.length ? leds[0].count : 24;
+		frames = Math.max(1, Math.round(frames / count)) * count;
+	}
+	frames = Math.min(frames, LL_HW_MAX_FRAMES);
+	return { frames, intervalMs: Math.max(LL_HW_FRAME_MS, period / frames) };
+}
+
+function llEffectFrames(name, leds, frames, color) {
+	const out = [];
+	for (let f = 0; f < frames; f++) {
+		out.push(leds.map((led) => llEffectColor(name, led, f / frames, color, frames)));
+	}
+	return out;
+}
+
+// Builds the upload, halving the frame rate until it fits the device memory.
+// intervalMs may be fractional; the RF timing has 1/100 tick precision.
+function llBuildRgbUploadFrac(frames, intervalMs) {
+	return llBuildRgbUploadTicks(frames, Math.round(intervalMs * 160), null);
+}
+
+function llFitAnimation(frames, intervalMs) {
+	let f = frames;
+	let interval = intervalMs;
+	for (;;) {
+		try {
+			const up = llBuildRgbUploadFrac(f, interval);
+			return { upload: up, frames: f.length, intervalMs: interval };
+		} catch (e) {
+			if (!/too large/.test(String(e)) || f.length <= 1) {
+				throw e;
+			}
+			const half = f.filter((_, i) => i % 2 === 0);
+			interval = (interval * f.length) / half.length;
+			f = half;
+		}
+	}
+}
+
+// Turns a recording into a seamless loop: the last `blend` frames are faded
+// into the first ones, so the end runs straight back into the start.
+function llLoopFrames(recorded, blend) {
+	const b = Math.max(0, Math.min(blend, Math.floor(recorded.length / 2)));
+	const n = recorded.length - b;
+	const out = [];
+	for (let i = 0; i < n; i++) {
+		if (i < b) {
+			const k = (i + 1) / (b + 1);
+			out.push(recorded[i].map((c, j) => c.map((v, ch) => Math.round(recorded[n + i][j][ch] * (1 - k) + v * k))));
+		} else {
+			out.push(recorded[i]);
+		}
+	}
+	return out;
+}
+
+function llEffectUpload(name, leds, speed, color) {
+	const plan = llEffectPlan(name, leds, speed);
+	const frames = llEffectFrames(name, leds, plan.frames, color);
+	return llFitAnimation(frames, plan.intervalMs);
+}
+
 if (typeof module !== "undefined") {
 	module.exports = {
 		tuzCompress,
@@ -895,7 +1064,6 @@ if (typeof module !== "undefined") {
 		llSlotIndex,
 		llParseSensorMessage,
 		llParseFinderMessage,
-		LL_PUMP_RANGE,
 		llMinDutyPercent,
 		llPreparePwm,
 		llPwmFrame,
@@ -904,5 +1072,52 @@ if (typeof module !== "undefined") {
 		llPicChunks,
 		llToBase64,
 		llFromBase64,
+		llU16BE,
+		llU32BE,
+		llBuildRgbUploadTicks,
+		llDeviceTypeName,
+		llF32Curve,
+		llAioHeader,
+		llIsClFan,
+		llSmoothPwm,
+		llLog,
+		llToArray,
+		llBulkRead,
+		llBulkWrite,
+		llFlushIn,
+		llHex,
+		llHsvToRgb,
+		llScale,
+		llEffectPeriod,
+		llEffectColor,
+		llEffectPlan,
+		llEffectFrames,
+		llBuildRgbUploadFrac,
+		llFitAnimation,
+		llLoopFrames,
+		llEffectUpload,
+		LL_USB_CMD_SEND_RF,
+		LL_USB_CMD_GET_MAC,
+		LL_RF_SELECT,
+		LL_RF_CLOCK_SYNC,
+		LL_RF_SET_RGB,
+		LL_RF_PWM_CMD,
+		LL_RF_SEND_PIC,
+		LL_PIC_CHUNK_BYTES,
+		LL_MAX_AIO_IMAGE_BYTES,
+		LL_RF_AIO_SWITCH_WIRELESS,
+		LL_RF_AIO_PARAMS,
+		LL_AIO_PARAM_LEN,
+		LL_RF_DATA_SIZE,
+		LL_RF_CHUNK_SIZE,
+		LL_RF_CHUNKS,
+		LL_RGB_CHUNK_BYTES,
+		LL_MAX_COMPRESSED_BYTES,
+		LL_LEDS_PER_RING,
+		LL_PUMP_RANGE,
+		LL_PWM_FOLLOW_MB,
+		LL_HW_FRAME_MS,
+		LL_HW_MAX_FRAMES,
+		LL_HW_EFFECTS,
 	};
 }

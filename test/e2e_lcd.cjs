@@ -29,7 +29,7 @@ function load(file, device, params) {
 	const src = fs.readFileSync(P + file, "utf8")
 		.replace(/^import udp from "@SignalRGB\/udp";$/m, "")
 		.replace(/^export /gm, "");
-	const ctx = vm.createContext({ device, console, Date: FakeDate, Math, JSON, udp, ...params });
+	const ctx = vm.createContext({ device, console, Date: FakeDate, Math, JSON, udp, ...require("./param_defaults.cjs")(P + file), ...params });
 	vm.runInContext(src + "\n;this.__api={Initialize,Render,Shutdown};this.__ctx=this;", ctx);
 	return { api: ctx.__api, ctx };
 }

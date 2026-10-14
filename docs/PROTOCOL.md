@@ -46,6 +46,7 @@ SignalRGB notes (`Type() = "rawusb"`):
   - Data (index 1..n): `[0x12, 0x20, mac, master, effect, index, packets, 220 bytes of tinyuz data]`
   - `effect` = FNV-1a over the compressed data + timing, high bit set. **It must change when the colors change**, otherwise the device ignores the upload.
   - Interval ticks = `ms × 160 / 100` (0.625 ms ticks).
+  - **Stored (hardware) effects** are the same upload with many frames: `frames` × `leds` × RGB, compressed together, played in a loop by the device at the frame interval. The plugin keeps uploads at ≥ 50 ms per frame (20 fps) and under the compressed-size limit, dropping frames and stretching the interval if needed. The device reports the effect it is playing in bytes 20–23 of its RX record, which is how each upload is confirmed.
 
 ## LED order
 
@@ -96,6 +97,8 @@ Ported from lian-li-linux `wireless/fan_speed.rs`. Same header as the AIO comman
 Observed on real hardware: the fans adopt byte 15 as their channel. With the master on channel 8 and the fans set up on 39, the first PWM command moved them to channel 8. Frames sent on 39 afterwards (PWM and colours) were ignored until the plugin followed the channel the RX reports. Sending a PWM frame with byte 15 = 39 moved them back.
 
 Wireless fans fall back to their own default duty (128) when PWM traffic stops for a while, so the target is re-sent every second.
+
+Behaviour copied from the official SignalRGB Lian Li wireless plugin: duty **6** is a sentinel ("follow the motherboard PWM line"), so a computed 6 is sent as 7; slightly negative levels from SignalRGB are its curve interpolator and are treated as "no change"; duties are averaged over the last 10 samples (reset on a jump > 100); RX slot 0 means "not assigned" and is never addressed.
 
 ## Picture upload (RF_SEND_PIC 0x22)
 

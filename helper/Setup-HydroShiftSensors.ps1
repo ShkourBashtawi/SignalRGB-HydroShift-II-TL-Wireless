@@ -41,14 +41,19 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
     -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings `
     -Description "Sends CPU/GPU temperature and load to the SignalRGB HydroShift II plugin (127.0.0.1:51870)." -Force | Out-Null
-Start-ScheduledTask -TaskName $TaskName
 
 Write-Host ""
 Write-Host "Installed: $Script" -ForegroundColor Green
-Write-Host "Task:      $TaskName (starts hidden at sign-in, running now)"
 Write-Host ""
 Write-Host "Test reading:" -ForegroundColor Cyan
 & $psExe -NoProfile -ExecutionPolicy Bypass -File $Script -Once -Port 51871
+
+# Start the background copy only after the test run has finished.
+Start-ScheduledTask -TaskName $TaskName
+Start-Sleep -Seconds 3
+$state = (Get-ScheduledTask -TaskName $TaskName).State
+Write-Host ""
+Write-Host "Task:      $TaskName (starts hidden at sign-in) - now: $state"
 Write-Host ""
 Write-Host "Log: $Dest\helper.log"
 Write-Host "For the real CPU temperature, run LibreHardwareMonitor with Options > Remote Web Server > Run."

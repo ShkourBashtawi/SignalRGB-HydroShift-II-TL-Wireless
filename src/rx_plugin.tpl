@@ -30,6 +30,9 @@ import udp from "@SignalRGB/udp";
 const POLL_MS = 1000;
 const STATUS_MS = 60000;
 const SHARE_PORT = 51870; // HydroShift plugin listens here (same port as the sensor helper)
+// A device sometimes misses one GetDev reply (radio noise). Keep showing it for
+// a while so the settings block and the HydroShift plugin do not flicker.
+const REMEMBER_MS = 15000;
 
 let lastPoll = 0;
 let lastStatusAt = 0;
@@ -40,6 +43,7 @@ let missedReplies = 0;
 let shownIds = [];
 let lastMessages = "";
 let shareSocket = null;
+let seen = new Map(); // mac -> { rec, at }
 
 export function Validate(endpoint) {
 	return endpoint.interface === 0;
@@ -90,6 +94,7 @@ function poll() {
 	}
 	missedReplies = 0;
 	warnedNoReply = false;
+	records = remember(records, Date.now());
 	share(records);
 
 	const master = records.find((r) => r.isMaster);
@@ -125,6 +130,27 @@ function poll() {
 	}
 }
 
+// Fresh records plus the ones that went missing less than REMEMBER_MS ago
+// (marked stale, so nothing acts on their old live values).
+function remember(records, now) {
+	const fresh = new Map(records.map((r) => [llMacToString(r.mac), r]));
+	for (const [mac, r] of fresh) {
+		seen.set(mac, { rec: r, at: now });
+	}
+	// Keep the order devices were first seen in, so nothing reshuffles.
+	const out = [];
+	for (const [mac, entry] of seen) {
+		if (fresh.has(mac)) {
+			out.push(fresh.get(mac));
+		} else if (now - entry.at > REMEMBER_MS) {
+			seen.delete(mac);
+		} else {
+			out.push(Object.assign({}, entry.rec, { stale: true }));
+		}
+	}
+	return out;
+}
+
 // Send the device list to the HydroShift plugin (localhost only). It needs the
 // pump's cmd_seq to confirm the LCD theme switch, the slot index and pump RPM.
 function share(records) {
@@ -150,7 +176,9 @@ function share(records) {
 				fans: r.fanCount,
 				fanTypes: r.fanTypes,
 				right: r.rightAttach,
+				fx: Array.from(r.effectIndex || []),
 				coolant: r.coolantC,
+				stale: !!r.stale,
 			})),
 		};
 		shareSocket.write(JSON.stringify(msg), "127.0.0.1", SHARE_PORT);
@@ -189,7 +217,9 @@ function row(label, value) {
 function settingsBlock(pumps, fans, devices) {
 	const lines = [];
 	lines.push("==================================================");
-	lines.push(" COPY THESE INTO: Lian Li HydroShift II (Wireless)");
+	lines.push(" FOUND ON THIS DONGLE");
+	lines.push(" The HydroShift device picks these up by itself (Auto setup).");
+	lines.push(" Copy them into its settings only to pin a specific device.");
 	lines.push("==================================================");
 	if (!devices.length) {
 		lines.push("  No wireless devices found yet.");

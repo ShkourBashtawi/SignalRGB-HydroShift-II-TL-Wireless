@@ -35,7 +35,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "1.2.0"
+$Version = "1.4.0"
 $Inv = [System.Globalization.CultureInfo]::InvariantCulture
 
 if (-not $LogDir) { $LogDir = Join-Path $env:LOCALAPPDATA "HydroShiftSensors" }
@@ -240,12 +240,18 @@ function ConvertTo-Packet($r) {
         (Format-Value $r.cpu_temp), (Format-Value $r.cpu_load), (Format-Value $r.gpu_temp), (Format-Value $r.gpu_load), $src, $Version)
 }
 
-$mutex = New-Object System.Threading.Mutex($false, "Global\HydroShiftSensorsHelper")
+# Only the long-running copy takes the single-instance lock. A -Once test run
+# must never hold it, otherwise the startup task can see "already running"
+# and quit while the test is still reading sensors.
+$mutex = $null
 $owned = $false
-try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
-if (-not $owned -and -not $Once) {
-    Write-Log "Another copy is already running. Exiting."
-    exit 0
+if (-not $Once) {
+    $mutex = New-Object System.Threading.Mutex($false, "Global\HydroShiftSensorsHelper")
+    try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+    if (-not $owned) {
+        Write-Log "Another copy is already running. Exiting."
+        exit 0
+    }
 }
 
 Initialize-Builtin
@@ -290,5 +296,5 @@ try {
     }
 } finally {
     $udp.Close()
-    if ($owned) { try { $mutex.ReleaseMutex() } catch { } }
+    if ($owned -and $mutex) { try { $mutex.ReleaseMutex() } catch { } }
 }
