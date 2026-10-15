@@ -1,6 +1,6 @@
 # SignalRGB × Lian Li HydroShift II + UNI FAN TL Wireless
 
-Control the lighting of the **Lian Li HydroShift II** (wireless) and **UNI FAN TL Wireless** fans from **SignalRGB**, live, together with the rest of your setup, or store a **smooth effect on the devices** that keeps playing on its own. Drive the **pump and fan speeds from SignalRGB fan curves**, and show your **CPU / GPU temperature and load on the pump's LCD**.
+Control the lighting of the **Lian Li HydroShift II** (wireless) and **UNI FAN TL Wireless** fans from **SignalRGB**, live, together with the rest of your setup, or store a **smooth effect on the devices** that keeps playing on its own. Drive the **pump and fan speeds from SignalRGB fan curves**, and show your **CPU / GPU temperature and load, coolant temperature or pump speed on the pump's LCD**.
 
 <p align="center"><img src="assets/hydroshift_ii_tl_wireless.png" width="360" alt="HydroShift II with three TL fans"></p>
 
@@ -12,7 +12,8 @@ Control the lighting of the **Lian Li HydroShift II** (wireless) and **UNI FAN T
 | 🧪 Should work, untested | HydroShift II LCD-C, other UNI FAN Wireless fans (SL V3, SL-INF, CL, TL V3, SL V4, P28 V2) |
 | ✅ 1.2 | LCD shows CPU/GPU temperature + load (built-in sensor themes), via a small helper |
 | ✅ 1.3 | Pump + fan speed curves on SignalRGB's Fan Control page, coolant temperature sensor |
-| ✅ New in 1.4 | **Automatic setup** (no values to copy) and **stored hardware effects** (smooth 20 fps, keep running after SignalRGB closes) |
+| ✅ 1.4 | **Automatic setup** (no values to copy) and **stored hardware effects** (smooth 20 fps, keep running after SignalRGB closes) |
+| ✅ New in 1.5 | **Pick what the LCD shows** in each of its four value spots, including **coolant temperature** and **pump speed**; settings sorted into sections (`LCD ·`, `Fans & Pump ·`, `Advanced ·`) |
 | ❌ Not possible | Custom images/videos or SignalRGB LCD themes on the LCD: over the wireless link the screen only takes a startup image (see [docs/PROTOCOL.md](docs/PROTOCOL.md)) |
 
 > ⚠️ Community project. Not affiliated with Lian Li or WhirlwindFX. Use at your own risk.
@@ -142,14 +143,17 @@ Open **Lian Li HydroShift II (Wireless)** → settings:
 
 | Setting | |
 |---|---|
-| **LCD Screen** | `CPU/GPU Sensors` (default `Off (don't touch)`: nothing is sent to the screen) |
-| LCD Theme | `1`–`13`, the built-in sensor layouts |
-| LCD Brightness / Rotation / Page Time | Page Time = seconds per page on themes that cycle |
-| LCD Label / Value / Unit Color | Text colors |
-| **Pump Speed (with LCD on)** | The screen data also carries the pump speed. Default `3200 rpm (max)`. |
-| Pump Head | `LCD-S (square)` or `LCD-C (round)` |
+| **LCD · Screen** | `CPU/GPU Sensors` (default `Off (don't touch)`: nothing is sent to the screen) |
+| LCD · Theme | `1`–`13`, the built-in sensor layouts |
+| **LCD · Value 1–4** | What each of the theme's four value spots shows: `CPU Temperature`, `CPU Load`, `GPU Temperature`, `GPU Load`, `Coolant Temperature`, `Pump Speed (%)` or `Off`. Defaults are the theme's own CPU temp / CPU load / GPU temp / GPU load. The text label next to a spot comes from the theme and stays the same. Pump speed is a percentage because the screen only shows 0–99. |
+| LCD · Brightness / Rotation / Page Time | Page Time = seconds per page on themes that cycle |
+| LCD · Label / Value / Unit Color | Text colors |
+| **Fans & Pump · Pump Speed (with LCD on)** | The screen data also carries the pump speed. Default `3200 rpm (max)`. |
+| Fans & Pump · Pump Head | `LCD-S (square)` or `LCD-C (round)` |
 
-Keep the **RX Finder** device enabled: the plugin uses it to confirm the screen switched and to watch the pump.
+Example, coolant and pump instead of the GPU: set **LCD · Value 3** to `Coolant Temperature` and **LCD · Value 4** to `Pump Speed (%)`. The theme still writes its own label (for example "GPU") next to those spots, so pick a theme whose layout suits you.
+
+Keep the **RX Finder** device enabled: the plugin uses it to confirm the screen switched, to watch the pump, and it is where the coolant temperature and pump speed come from.
 
 > ⚠️ **Pump safety.** The same wireless packet sets the LCD *and* the pump speed. The plugin sends the speed you pick (default: maximum, the same as L-Connect's default) and warns in the device page and console if the pump reports under 1000 rpm. On the first run, check the Finder console line `Status pump … rpm`.
 
@@ -167,20 +171,20 @@ LCD  CPU 52°C 18% | GPU 44°C 6% | helper: LibreHardwareMonitor | pump 3180 rpm
 
 SignalRGB can run the pump and every fan from curves on its **Fan Control** page, like L-Connect did.
 
-1. Open **Lian Li HydroShift II (Wireless)** → settings → **Fan & Pump Control** → `SignalRGB Fan Control`.
+1. Open **Lian Li HydroShift II (Wireless)** → settings → **Fans & Pump · Control** → `SignalRGB Fan Control`.
 2. Keep the **RX Finder** device enabled (it reports RPM, coolant temperature and which channel each device listens on).
 3. **Pump**, **Fan 1-3** and a **Coolant** temperature sensor appear on SignalRGB's Fan Control page. Set a curve for each.
 
 | | How it works |
 |---|---|
-| Fans | 0-100 % curve → PWM duty, sent once a second (the fans fall back to their own default if the host goes quiet). Floor 11 % for TL fans. A curve at 0 % runs the fan at that minimum unless **Fans at 0%** is `Stop the fans`. |
+| Fans | 0-100 % curve → PWM duty, sent once a second (the fans fall back to their own default if the host goes quiet). Floor 11 % for TL fans. A curve at 0 % runs the fan at that minimum unless **Fans & Pump · Fans at 0%** is `Stop the fans`. |
 | Pump | 0-100 % curve → 1600-3200 rpm (LCD-S) or 1600-2500 rpm (LCD-C), sent inside the LCD data packet. Starts at full speed until the first curve value. |
 | Safety | A missing or in-between value keeps the last speed instead of stopping; small changes are averaged over 10 samples. Turning Fan Control off for the device in SignalRGB hands the fans back instead of stopping them. Fans without an RX slot are never sent speeds. |
 | Turning it off | The fans get their previous duty and channel back, and the pump goes back to **Pump Speed**. |
 
-> ℹ️ The pump speed travels in the same packet as the LCD settings, so while Fan & Pump Control is on the LCD shows the **LCD Theme** you picked (with values only when **LCD Screen** is `CPU/GPU Sensors`).
+> ℹ️ The pump speed travels in the same packet as the LCD settings, so while Fan & Pump Control is on the LCD shows the **LCD · Theme** you picked (with values only when **LCD · Screen** is `CPU/GPU Sensors`).
 >
-> ℹ️ The first speed command makes the fans switch to the TX's master channel. The plugin follows each device on the channel the Finder reports, and moves the fans back to **Device Channel** when you turn the feature off.
+> ℹ️ The first speed command makes the fans switch to the TX's master channel. The plugin follows each device on the channel the Finder reports, and moves the fans back to **Advanced · Device Channel** when you turn the feature off.
 
 ---
 
@@ -208,7 +212,7 @@ Log: `%LOCALAPPDATA%\HydroShiftFanHandoff\handoff.log`. To undo, run **`Uninstal
 
 | Setting | Use it when |
 |---|---|
-| Updates per Second | The animation stutters: try `15` or `18` (max). Flicker: try `10`. |
+| Advanced · Updates per Second | The animation stutters: try `15` or `18` (max). Flicker: try `10`. |
 | Ring Rotation | The effect looks rotated on the rings |
 | Reverse Ring Direction | Spirals or rainbows spin the wrong way |
 | Skip the pump or the fans | Set that RX Slot to a slot nothing uses, or disable the device. (`00:00:00:00:00:00` now means *automatic*.) |
@@ -231,10 +235,11 @@ Log: `%LOCALAPPDATA%\HydroShiftFanHandoff\handoff.log`. To undo, run **`Uninstal
 | Fans run at 50 % after closing SignalRGB | That's the fans' own fallback when the host goes quiet. Reopen L-Connect to set them, or keep SignalRGB running. |
 | It stops working after a Windows restart | The L-Connect service started again and nothing stopped it. Set its Startup type to Manual, or use the [Fan Handoff](#fans-spin-from-boot-fan-handoff), which stops it for you. |
 | Fans don't spin until SignalRGB opens | Expected without L-Connect: wireless fans need the dongle. Install the [Fan Handoff](#fans-spin-from-boot-fan-handoff). |
-| Wrong colors on part of a fan | Check Fan Count and LEDs per Fan match the Finder. |
+| Wrong colors on part of a fan | Check **Advanced · Fan Count** and **Advanced · LEDs per Fan** match the Finder. |
 | LCD shows `--` | The helper isn't running (run `Test-Sensors.bat`), or that value needs LibreHardwareMonitor. |
+| Coolant or pump speed shows `--` | Enable the **RX Finder**: those two values come from it. |
 | LCD doesn't switch to the sensor theme | Keep the RX Finder enabled; check the console for `LCD switched to the sensor theme`. |
-| "Pump RPM low" warning | Set LCD Screen to Off and reopen L-Connect 3 to restore the pump. Please open an issue with the console log. |
+| "Pump RPM low" warning | Set **LCD · Screen** to Off and reopen L-Connect 3 to restore the pump. Please open an issue with the console log. |
 
 ---
 
@@ -252,11 +257,11 @@ Details: [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
 - Hardware: HydroShift II LCD-S 360 TL + 3× UNI FAN TL Wireless, L-Wireless TX/RX V1.6, SignalRGB 2.5.79 beta, Windows 11.
 - Tests (`test/run_all.sh`): the compressor round-trips 86 inputs through the **official tinyuz decoder**; RF packets and effect indexes are byte-identical to the reference Rust implementation; the parser is tested on a real dongle reply.
-- LCD tests: theme-switch frames, sequence numbers and both pump-speed curves (4,000+ values) match the Rust implementation; an end-to-end simulation runs both plugins and the helper protocol against a fake AIO (switch + ack, values, stale helper, pump watchdog, LCD off).
+- LCD tests: theme-switch frames, sequence numbers and both pump-speed curves (4,000+ values) match the Rust implementation; an end-to-end simulation runs both plugins and the helper protocol against a fake AIO (switch + ack, values, stale helper, pump watchdog, LCD off), and each value spot with every source (coolant, pump %, Off).
 - Fan tests: PWM frames for 7 fan families × 7 duty sets are byte-identical to Rust; a simulation covers curves → PWM, pump curve → timer, RPM/coolant publishing, the channel move, hand-back, and SignalRGB fan control being disabled.
 - Auto-setup tests: with every setting at its default, both plugins find the pump and 3 TL fans, address them on the right slots, and ride out a pump that misses replies without flicker. Hardware effects: every built-in effect decodes through the official tinyuz decoder to frames × LEDs × RGB; a simulation covers upload, Finder confirmation, retry, re-upload after a power cycle, Canvas Loop and storing on exit.
 - Fan Handoff tested on the hardware above: fans spin from power-on and SignalRGB takes over after sign-in.
-- Live on the hardware above: fans followed the curve (PWM 194 → ~1966 rpm), pump followed (2849 → 2912 rpm), and hand-back restored pump 3180 rpm and fan channel 39. Hardware effects played on the pump and fans and were confirmed through the RX Finder; the LCD showed CPU/GPU values from LibreHardwareMonitor.
+- Live on the hardware above: fans followed the curve (PWM 194 → ~1966 rpm), pump followed (2849 → 2912 rpm), and hand-back restored pump 3180 rpm and fan channel 39. Hardware effects played on the pump and fans and were confirmed through the RX Finder; the LCD showed CPU/GPU values from LibreHardwareMonitor. 1.5 ran on SignalRGB 2.5.80 as a local plugin: the LCD switched to the sensor theme and took the new value spots.
 
 ## For developers
 
@@ -265,6 +270,14 @@ python3 build.py        # rebuild the two plugin files from src/ (needs Pillow: 
 python3 tools/make_images.py   # redraw assets/*.png
 ./test/run_all.sh       # needs node, gcc/g++, and tinyuz + HDiffPatch in ./vendor
 ```
+
+### Try a change in SignalRGB without publishing
+
+```bat
+dev\Deploy-Local.bat
+```
+
+Builds the plugins, copies them into SignalRGB's own user plugin folder (read from the registry, `HKCU\Software\WhirlwindFX\SignalRgb` → `UserDirectory`; it is often on OneDrive) and restarts SignalRGB. Remove the GitHub add-on first, or both copies claim the dongle. `dev\Deploy-Local.ps1 -Remove` deletes the local copies again. SignalRGB's log (`%LOCALAPPDATA%\WhirlwindFX\SignalRgb\Logs`) says `Custom Plugin File Loaded` when the local copy is in use.
 
 Edit `src/` (`core.cjs`, `*.tpl`), not the generated `.js` files at the root. Only the two root `.js` files use the `.js` extension, because SignalRGB loads every `.js` file in an add-on as a plugin.
 

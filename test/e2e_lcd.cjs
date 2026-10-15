@@ -146,6 +146,25 @@ tx.ctx.PumpSpeed = "3200 rpm (max)";
 step(4000, reading);
 ok(aio.rpm === 3180 && !txMsgs.ll_pump, "pump back to 3180 rpm, warning cleared");
 
+// Pick what each LCD spot shows: any source in any spot, Off clears the enable flag
+tx.ctx.ScreenValue1 = "Coolant Temperature";
+tx.ctx.ScreenValue2 = "Pump Speed (%)";
+tx.ctx.ScreenValue3 = "Off";
+tx.ctx.ScreenValue4 = "CPU Temperature";
+step(2000, reading);
+const picked = aio.params[aio.params.length - 1].data.slice(18, 50);
+ok(picked[0] === real[4 + 27] && picked[8] === 1, `spot 1 = coolant ${real[4 + 27]} °C (${picked[0]})`);
+ok(picked[1] === Math.round(3180 * 100 / 3200) && picked[9] === 1, `spot 2 = pump % (${picked[1]})`);
+ok(picked[2] === 0 && picked[10] === 0, "spot 3 off");
+ok(picked[3] === 47 && picked[11] === 1, "spot 4 = CPU temperature");
+tx.ctx.ScreenValue1 = "CPU Temperature";
+tx.ctx.ScreenValue2 = "CPU Load";
+tx.ctx.ScreenValue3 = "GPU Temperature";
+tx.ctx.ScreenValue4 = "GPU Load";
+step(2000, reading);
+const all = aio.params[aio.params.length - 1].data.slice(18, 50);
+ok(all[0] === 47 && all[1] === 23 && all[2] === 41 && all[3] === 6 && all[8] && all[9] && all[10] && all[11], "defaults back");
+
 // Screen off -> no more LCD traffic
 tx.ctx.ScreenMode = "Off (don't touch)";
 tx.ctx.onScreenModeChanged && tx.ctx.onScreenModeChanged();

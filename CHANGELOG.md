@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0 — 2026-10-15
+
+- **Choose what the LCD shows**: new settings `LCD · Value 1–4` pick the source of each of the sensor theme's four value spots: CPU/GPU temperature or load, **coolant temperature** or **pump speed** (% of the pump's maximum, from the RX Finder), or `Off`. Like lian-li-linux, any source can go in any spot; `Off` or a value that can't be read is sent with its enable flag cleared (aio_param bytes 8–11). Defaults keep the old layout.
+- **Settings reorganised**: lighting settings (incl. ring rotation) are together in the Lighting group; the rest are ordered and prefixed by section: `LCD ·`, `Fans & Pump ·`, `Advanced ·` (manual setup). Only the labels and order changed, saved values are kept.
+- `dev/Deploy-Local.bat`: builds the plugins, puts them in SignalRGB's user plugin folder (found through the registry, it can be on OneDrive) and restarts SignalRGB, to try a change without publishing it.
+
 ## 1.4.0 — 2026-10-14
 
 - **Automatic setup**: Pump MAC, RX slots, fan count, LEDs per fan and channel are taken from the RX Finder. Leave them at their defaults (`00:00:00:00:00:00`, `Broadcast`, `Auto`); values set by hand still win, so existing setups keep working.

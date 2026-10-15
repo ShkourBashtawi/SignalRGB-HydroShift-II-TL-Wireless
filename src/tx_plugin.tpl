@@ -38,6 +38,10 @@ WirelessChannel:readonly
 DeviceChannel:readonly
 ScreenMode:readonly
 ScreenTheme:readonly
+ScreenValue1:readonly
+ScreenValue2:readonly
+ScreenValue3:readonly
+ScreenValue4:readonly
 ScreenBrightness:readonly
 ScreenRotation:readonly
 ScreenCycle:readonly
@@ -55,36 +59,40 @@ OnExit:readonly
 */
 export function ControllableParameters() {
 	return [
-		{"property":"shutdownColor", "group":"lighting", "label":"Shutdown Color", "min":"0", "max":"360", "type":"color", "default":"#000000"},
 		{"property":"LightingMode", "group":"lighting", "label":"Lighting Mode", "type":"combobox", "values":["Canvas", "Forced", "Hardware Effect"], "default":"Canvas"},
 		{"property":"forcedColor", "group":"lighting", "label":"Forced Color", "min":"0", "max":"360", "type":"color", "default":"#009bde"},
 		{"property":"HwEffect", "group":"lighting", "label":"Hardware Effect", "description":"Stored on the pump and fans and played by them at 20 frames per second. Used by Lighting Mode 'Hardware Effect' and by 'When SignalRGB Closes'. Canvas Loop records 4 seconds of the current SignalRGB effect.", "type":"combobox", "values":["Rainbow Wave", "Rainbow Spin", "Color Cycle", "Breathing", "Spinner", "Static", "Canvas Loop"], "default":"Rainbow Wave"},
 		{"property":"HwSpeed", "group":"lighting", "label":"Effect Speed", "type":"number", "min":"1", "max":"10", "step":"1", "default":"5"},
 		{"property":"HwColor", "group":"lighting", "label":"Effect Color", "description":"For Breathing, Spinner and Static.", "min":"0", "max":"360", "type":"color", "default":"#009bde"},
 		{"property":"OnExit", "group":"lighting", "label":"When SignalRGB Closes", "description":"Hardware Effect leaves the stored effect running on the devices after SignalRGB exits.", "type":"combobox", "values":["Shutdown Color", "Hardware Effect"], "default":"Shutdown Color"},
-		{"property":"PumpMac", "group":"", "label":"Pump MAC", "description":"Leave 00:00:00:00:00:00 to use the pump the RX Finder sees (automatic).", "type":"textfield", "default":"00:00:00:00:00:00"},
-		{"property":"PumpRxSlot", "group":"", "label":"Pump RX Slot", "description":"Broadcast = take it from the RX Finder (automatic).", "type":"combobox", "values":["Broadcast", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"Broadcast"},
-		{"property":"FansMac", "group":"", "label":"Fans MAC", "description":"Leave 00:00:00:00:00:00 to use the fan group the RX Finder sees (automatic).", "type":"textfield", "default":"00:00:00:00:00:00"},
-		{"property":"FansRxSlot", "group":"", "label":"Fans RX Slot", "description":"Broadcast = take it from the RX Finder (automatic).", "type":"combobox", "values":["Broadcast", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"Broadcast"},
-		{"property":"FanCount", "group":"", "label":"Fan Count", "type":"combobox", "values":["Auto", "1", "2", "3", "4"], "default":"Auto"},
-		{"property":"LedsPerFan", "group":"", "label":"LEDs per Fan", "type":"combobox", "values":["Auto", "26", "24", "40", "44", "52", "9"], "default":"Auto"},
-		{"property":"DeviceChannel", "group":"", "label":"Device Channel", "type":"combobox", "values":["Same as TX", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"], "default":"Same as TX"},
-		{"property":"WirelessChannel", "group":"", "label":"TX Master Channel", "type":"combobox", "values":["Auto", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"], "default":"Auto"},
-		{"property":"UpdateRate", "group":"", "label":"Updates per Second", "type":"combobox", "values":["5", "10", "15", "18"], "default":"15"},
-		{"property":"RingRotation", "group":"", "label":"Ring Rotation", "type":"number", "min":"0", "max":"23", "step":"1", "default":"0"},
-		{"property":"RingReverse", "group":"", "label":"Reverse Ring Direction", "type":"boolean", "default":"false"},
-		{"property":"FanStop", "group":"", "label":"Fans at 0%", "description":"What a 0% point on a SignalRGB fan curve does. Minimum speed keeps the fans turning (safer: a fresh or empty curve reads 0%).", "type":"combobox", "values":["Minimum speed", "Stop the fans"], "default":"Minimum speed"},
-		{"property":"FanControl", "group":"", "label":"Fan & Pump Control", "description":"SignalRGB Fan Control drives the pump and every fan from curves on SignalRGB's Fan Control page. Off leaves the speeds the devices already have.", "type":"combobox", "values":["Off (keep current speeds)", "SignalRGB Fan Control"], "default":"Off (keep current speeds)"},
-		{"property":"ScreenMode", "group":"", "label":"LCD Screen", "type":"combobox", "values":["Off (don't touch)", "CPU/GPU Sensors"], "default":"Off (don't touch)"},
-		{"property":"ScreenTheme", "group":"", "label":"LCD Theme", "type":"combobox", "values":["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"1"},
-		{"property":"ScreenBrightness", "group":"", "label":"LCD Brightness", "type":"number", "min":"0", "max":"100", "step":"5", "default":"80"},
-		{"property":"ScreenRotation", "group":"", "label":"LCD Rotation", "type":"combobox", "values":["0°", "90°", "180°", "270°"], "default":"0°"},
-		{"property":"ScreenCycle", "group":"", "label":"LCD Page Time (s)", "type":"number", "min":"1", "max":"30", "step":"1", "default":"3"},
-		{"property":"ScreenLabelColor", "group":"", "label":"LCD Label Color", "min":"0", "max":"360", "type":"color", "default":"#ffffff"},
-		{"property":"ScreenValueColor", "group":"", "label":"LCD Value Color", "min":"0", "max":"360", "type":"color", "default":"#ffffff"},
-		{"property":"ScreenUnitColor", "group":"", "label":"LCD Unit Color", "min":"0", "max":"360", "type":"color", "default":"#ffffff"},
-		{"property":"PumpSpeed", "group":"", "label":"Pump Speed (with LCD on)", "type":"combobox", "values":["3200 rpm (max)", "3000 rpm", "2800 rpm", "2600 rpm", "2400 rpm", "2200 rpm", "2000 rpm", "1800 rpm", "1600 rpm"], "default":"3200 rpm (max)"},
-		{"property":"PumpHead", "group":"", "label":"Pump Head", "type":"combobox", "values":["LCD-S (square)", "LCD-C (round)"], "default":"LCD-S (square)"},
+		{"property":"shutdownColor", "group":"lighting", "label":"Shutdown Color", "min":"0", "max":"360", "type":"color", "default":"#000000"},
+		{"property":"RingRotation", "group":"lighting", "label":"Ring Rotation", "type":"number", "min":"0", "max":"23", "step":"1", "default":"0"},
+		{"property":"RingReverse", "group":"lighting", "label":"Reverse Ring Direction", "type":"boolean", "default":"false"},
+		{"property":"ScreenMode", "group":"", "label":"LCD · Screen", "type":"combobox", "values":["Off (don't touch)", "CPU/GPU Sensors"], "default":"Off (don't touch)"},
+		{"property":"ScreenTheme", "group":"", "label":"LCD · Theme", "type":"combobox", "values":["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"1"},
+		{"property":"ScreenValue1", "group":"", "label":"LCD · Value 1 (CPU temp spot)", "description":"What the theme draws in this spot. The text label next to it comes from the theme and does not change. Pump Speed is a percentage of the pump's maximum (the screen only shows 0-99).", "type":"combobox", "values":["CPU Temperature", "CPU Load", "GPU Temperature", "GPU Load", "Coolant Temperature", "Pump Speed (%)", "Off"], "default":"CPU Temperature"},
+		{"property":"ScreenValue2", "group":"", "label":"LCD · Value 2 (CPU load spot)", "description":"What the theme draws in this spot. The text label next to it comes from the theme and does not change. Pump Speed is a percentage of the pump's maximum (the screen only shows 0-99).", "type":"combobox", "values":["CPU Temperature", "CPU Load", "GPU Temperature", "GPU Load", "Coolant Temperature", "Pump Speed (%)", "Off"], "default":"CPU Load"},
+		{"property":"ScreenValue3", "group":"", "label":"LCD · Value 3 (GPU temp spot)", "description":"What the theme draws in this spot. The text label next to it comes from the theme and does not change. Pump Speed is a percentage of the pump's maximum (the screen only shows 0-99).", "type":"combobox", "values":["CPU Temperature", "CPU Load", "GPU Temperature", "GPU Load", "Coolant Temperature", "Pump Speed (%)", "Off"], "default":"GPU Temperature"},
+		{"property":"ScreenValue4", "group":"", "label":"LCD · Value 4 (GPU load spot)", "description":"What the theme draws in this spot. The text label next to it comes from the theme and does not change. Pump Speed is a percentage of the pump's maximum (the screen only shows 0-99).", "type":"combobox", "values":["CPU Temperature", "CPU Load", "GPU Temperature", "GPU Load", "Coolant Temperature", "Pump Speed (%)", "Off"], "default":"GPU Load"},
+		{"property":"ScreenBrightness", "group":"", "label":"LCD · Brightness", "type":"number", "min":"0", "max":"100", "step":"5", "default":"80"},
+		{"property":"ScreenRotation", "group":"", "label":"LCD · Rotation", "type":"combobox", "values":["0°", "90°", "180°", "270°"], "default":"0°"},
+		{"property":"ScreenCycle", "group":"", "label":"LCD · Page Time (s)", "type":"number", "min":"1", "max":"30", "step":"1", "default":"3"},
+		{"property":"ScreenLabelColor", "group":"", "label":"LCD · Label Color", "min":"0", "max":"360", "type":"color", "default":"#ffffff"},
+		{"property":"ScreenValueColor", "group":"", "label":"LCD · Value Color", "min":"0", "max":"360", "type":"color", "default":"#ffffff"},
+		{"property":"ScreenUnitColor", "group":"", "label":"LCD · Unit Color", "min":"0", "max":"360", "type":"color", "default":"#ffffff"},
+		{"property":"FanControl", "group":"", "label":"Fans & Pump · Control", "description":"SignalRGB Fan Control drives the pump and every fan from curves on SignalRGB's Fan Control page. Off leaves the speeds the devices already have.", "type":"combobox", "values":["Off (keep current speeds)", "SignalRGB Fan Control"], "default":"Off (keep current speeds)"},
+		{"property":"FanStop", "group":"", "label":"Fans & Pump · Fans at 0%", "description":"What a 0% point on a SignalRGB fan curve does. Minimum speed keeps the fans turning (safer: a fresh or empty curve reads 0%).", "type":"combobox", "values":["Minimum speed", "Stop the fans"], "default":"Minimum speed"},
+		{"property":"PumpSpeed", "group":"", "label":"Fans & Pump · Pump Speed (with LCD on)", "type":"combobox", "values":["3200 rpm (max)", "3000 rpm", "2800 rpm", "2600 rpm", "2400 rpm", "2200 rpm", "2000 rpm", "1800 rpm", "1600 rpm"], "default":"3200 rpm (max)"},
+		{"property":"PumpHead", "group":"", "label":"Fans & Pump · Pump Head", "type":"combobox", "values":["LCD-S (square)", "LCD-C (round)"], "default":"LCD-S (square)"},
+		{"property":"PumpMac", "group":"", "label":"Advanced · Pump MAC", "description":"Leave 00:00:00:00:00:00 to use the pump the RX Finder sees (automatic).", "type":"textfield", "default":"00:00:00:00:00:00"},
+		{"property":"PumpRxSlot", "group":"", "label":"Advanced · Pump RX Slot", "description":"Broadcast = take it from the RX Finder (automatic).", "type":"combobox", "values":["Broadcast", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"Broadcast"},
+		{"property":"FansMac", "group":"", "label":"Advanced · Fans MAC", "description":"Leave 00:00:00:00:00:00 to use the fan group the RX Finder sees (automatic).", "type":"textfield", "default":"00:00:00:00:00:00"},
+		{"property":"FansRxSlot", "group":"", "label":"Advanced · Fans RX Slot", "description":"Broadcast = take it from the RX Finder (automatic).", "type":"combobox", "values":["Broadcast", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"], "default":"Broadcast"},
+		{"property":"FanCount", "group":"", "label":"Advanced · Fan Count", "type":"combobox", "values":["Auto", "1", "2", "3", "4"], "default":"Auto"},
+		{"property":"LedsPerFan", "group":"", "label":"Advanced · LEDs per Fan", "type":"combobox", "values":["Auto", "26", "24", "40", "44", "52", "9"], "default":"Auto"},
+		{"property":"DeviceChannel", "group":"", "label":"Advanced · Device Channel", "type":"combobox", "values":["Same as TX", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"], "default":"Same as TX"},
+		{"property":"WirelessChannel", "group":"", "label":"Advanced · TX Master Channel", "type":"combobox", "values":["Auto", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"], "default":"Auto"},
+		{"property":"UpdateRate", "group":"", "label":"Advanced · Updates per Second", "type":"combobox", "values":["5", "10", "15", "18"], "default":"15"},
 	];
 }
 
@@ -717,6 +725,29 @@ function freshScreenState() {
 	};
 }
 
+// The four value spots of the sensor theme (CPU temp, CPU load, GPU temp, GPU
+// load). Like lian-li-linux, any source can go in any spot; "Off" or a value we
+// can't read is sent with its enable flag cleared so the theme leaves it out.
+function screenValue(setting, fresh, rec) {
+	switch (setting) {
+	case "CPU Temperature": return fresh.cpuTemp;
+	case "CPU Load": return fresh.cpuLoad;
+	case "GPU Temperature": return fresh.gpuTemp;
+	case "GPU Load": return fresh.gpuLoad;
+	case "Coolant Temperature": return rec && rec.coolant > 0 ? rec.coolant : null;
+	case "Pump Speed (%)": return rec ? pumpPercent(rec.pumpRpm) : null;
+	default: return null;
+	}
+}
+
+function pumpPercent(rpm) {
+	if (typeof rpm !== "number" || rpm <= 0) {
+		return null;
+	}
+	const max = PumpHead === "LCD-C (round)" ? 2500 : 3200;
+	return Math.min(Math.round(rpm * 100 / max), 99);
+}
+
 function screenEnabled() {
 	return typeof ScreenMode !== "undefined" && ScreenMode === "CPU/GPU Sensors";
 }
@@ -841,11 +872,12 @@ function screenTick(now) {
 	}
 	screen.lastParams = now;
 	const fresh = screenEnabled() && sensors && now - sensorsAt <= SENSOR_STALE_MS ? sensors : {};
+	const live = screenEnabled() ? rec : null; // coolant + pump only while the screen is on
 	const param = llBuildAioParam({
-		cpuTemp: fresh.cpuTemp,
-		cpuLoad: fresh.cpuLoad,
-		gpuTemp: fresh.gpuTemp,
-		gpuLoad: fresh.gpuLoad,
+		cpuTemp: screenValue(ScreenValue1, fresh, live),
+		cpuLoad: screenValue(ScreenValue2, fresh, live),
+		gpuTemp: screenValue(ScreenValue3, fresh, live),
+		gpuLoad: screenValue(ScreenValue4, fresh, live),
 		loopInterval: parseInt(ScreenCycle, 10) || 3,
 		labelColor: hexToRgb(ScreenLabelColor),
 		valueColor: hexToRgb(ScreenValueColor),
@@ -879,9 +911,9 @@ function screenStatus(now, rec, fresh) {
 			screen.lowRpmCount = 0;
 		}
 		if (screen.lowRpmCount === 5) {
-			llLog(`WARNING: pump reports ${rec.pumpRpm} rpm. Set LCD Screen to Off and reopen L-Connect 3.`);
+			llLog(`WARNING: pump reports ${rec.pumpRpm} rpm. Set LCD · Screen to Off and reopen L-Connect 3.`);
 			try {
-				device.addMessage("ll_pump", `Pump RPM low (${rec.pumpRpm})`, "Set LCD Screen to Off and reopen L-Connect 3 to restore the pump speed.");
+				device.addMessage("ll_pump", `Pump RPM low (${rec.pumpRpm})`, "Set LCD · Screen to Off and reopen L-Connect 3 to restore the pump speed.");
 			} catch (e) { /* ignore */ }
 		}
 		if (screen.lowRpmCount === 0) {
