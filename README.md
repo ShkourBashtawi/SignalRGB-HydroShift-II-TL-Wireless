@@ -277,7 +277,7 @@ python3 tools/make_images.py   # redraw assets/*.png
 dev\Deploy-Local.bat
 ```
 
-Builds the plugins, copies them into SignalRGB's own user plugin folder (read from the registry, `HKCU\Software\WhirlwindFX\SignalRgb` → `UserDirectory`; it is often on OneDrive) and restarts SignalRGB. Remove the GitHub add-on first, or both copies claim the dongle. `dev\Deploy-Local.ps1 -Remove` deletes the local copies again. SignalRGB's log (`%LOCALAPPDATA%\WhirlwindFX\SignalRgb\Logs`) says `Custom Plugin File Loaded` when the local copy is in use.
+Builds the plugins, copies them into SignalRGB's own user plugin folder (read from the registry, `HKCU\Software\WhirlwindFX\SignalRgb` → `UserDirectory`; it is often on OneDrive) and restarts SignalRGB. Remove the GitHub add-on first, or both copies claim the dongle. `dev\Remove-Local.bat` deletes the local copies again and restarts SignalRGB; then re-add the add-on. SignalRGB's log (`%LOCALAPPDATA%\WhirlwindFX\SignalRgb\Logs`) says `Custom Plugin File Loaded` when the local copy is in use.
 
 Edit `src/` (`core.cjs`, `*.tpl`), not the generated `.js` files at the root. Only the two root `.js` files use the `.js` extension, because SignalRGB loads every `.js` file in an add-on as a plugin.
 
